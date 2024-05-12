@@ -1,0 +1,17 @@
+{
+    "companies":
+            [{
+                "identifier" : 32237,
+                "name": "Ezentis",
+                "win_percentage" : 80,
+                "number_of_predictions": 10,
+                "variation_percentage" : 20
+            },
+            {
+                "identifier" : 32191,
+                "name": "Audax Renovables",
+                "win_percentage" : 80,
+                "number_of_predictions": 5,
+                "variation_percentage" : 20
+            }]
+}
