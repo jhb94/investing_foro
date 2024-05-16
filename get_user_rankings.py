@@ -186,10 +186,10 @@ def main (companies_to_watch : dict, previous_sentiments:dict):
 
     reliable_sentiments_json =  pd.DataFrame(previous_sentiments["reliable_sentiments"])
 
-    if previous_sentiments['reliable_sentiments']:
-        reliable_sentiments_json = pd.DataFrame(previous_sentiments['reliable_sentiments'])
-    else:
-        reliable_sentiments_json = pd.DataFrame()
+    # if previous_sentiments['reliable_sentiments']:
+    #     reliable_sentiments_json = pd.DataFrame(previous_sentiments['reliable_sentiments'])
+    # else:
+    #     reliable_sentiments_json = pd.DataFrame()
 
     for i in companies_to_watch["companies"]:
 
@@ -239,15 +239,13 @@ def main (companies_to_watch : dict, previous_sentiments:dict):
                 print(last_user_prediction)
 
                 # Check if the new row exists in the JSON data
-                # TODO: It's not doing the comparisson correctly
-                if not last_user_prediction.astype(str).isin(reliable_sentiments_json).all(axis=None):
-                # if not reliable_sentiments_json.equals(last_user_prediction.astype(str)):
-                    
-                    print('Adding new sentiment ENTRY to the list')
+                reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
 
-                    # Add the new row to the JSON DataFrame
-                    reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction.astype(str)], ignore_index=True)
-                
+                if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
+
+                    print('Adding new sentiment ENTRY to the list')
+                    reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
+
                 else : 
                     print("Entry already exist in the local JSON list")
             
