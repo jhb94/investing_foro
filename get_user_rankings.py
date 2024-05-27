@@ -7,7 +7,7 @@ import boto3
 import calendar
 from datetime import datetime
 
-scraper = cloudscraper.create_scraper()
+scraper = cloudscraper.create_scraper(browser='chrome')
 
 # Initialize the BOTO3 client
 s3 = boto3.resource('s3', region_name="eu-west-1")
@@ -124,7 +124,7 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
     ## TODO: Replace AWS Proxy solution as It may stop working at some point and is dangerous
     ## Taken from Irish proxy list: https://spys.one/free-proxy-list/IE/
     ## There are some AWS proxies in the list, below is one of those.
-    proxy = '54.78.9.179:80'
+    proxy = '52.236.0.6:8080'
 
     user_equities_sentiments_html_page = scraper.get(f'https://es.investing.com{user_link}', proxies={'http':proxy})
 
