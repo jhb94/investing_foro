@@ -129,7 +129,12 @@ def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float
 
 def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
 
-    user_equities_sentiments_html_page = scraper.get(f'http://es.investing.com{user_link}')
+    ## TODO: Replace AWS Proxy solution as It may stop working at some point and is dangerous
+    ## Taken from Irish proxy list: https://spys.one/free-proxy-list/IE/
+    ## There are some AWS proxies in the list, below is one of those.
+    proxy = '54.78.9.179:80'
+
+    user_equities_sentiments_html_page = scraper.get(f'https://es.investing.com{user_link}', proxies={'http':proxy})
 
     soup = BeautifulSoup(user_equities_sentiments_html_page.text, "html.parser")
 
