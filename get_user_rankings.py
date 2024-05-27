@@ -3,8 +3,20 @@ import cloudscraper
 from bs4 import BeautifulSoup
 import pandas as pd
 import json
+import boto3
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+from datetime import datetime
+import calendar
 
 scraper = cloudscraper.create_scraper()
+
+# Initialize the BOTO3 client
+s3 = boto3.resource('s3', region_name="eu-west-1")
+
+# Initialize the SES client
+ses_client = boto3.client("ses", region_name="eu-west-1")
 
 ## identifier should be a console configurable input parameter
 identifier = '32237' # EZENTIS: 32237
@@ -159,37 +171,74 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
     ## Keep last value of the prediction 
     return user_sentiments_list.drop_duplicates(subset=['PredictionDate'], keep='first')
 
-## Discard this function at all as we will be using above one.
-# def find_latest_user_prediction(user_name: str):
+## Send email to recipients with new predictions
+def send_email(last_user_prediction): 
 
-#     iterator = 0
+    prediction = last_user_prediction.astype(str)
 
-#     ## Read Data.
-#     recent_sentiments = requests.get(f'{sentiments_url}{identifier}&sentimentsBulkCount={iterator}')
+    corrective_actions_email_from = "onehck.internet@gmail.com"
+    corrective_actions_email_to = ["onehck.internet@gmail.com"]
+    corrective_actions_email_text = "New User prediction has been published: \n {prediction}" 
+    corrective_actions_email_title="INVESTING.COM Alerting system, new prediction found: {Day}/{Month}/{Year}"
 
-#     recent_sentiments_json = json.loads(recent_sentiments.content.decode() )
 
-#     recent_sentiments_list = pd.DataFrame.from_dict(recent_sentiments_json['rowsData'] )
+    msg = MIMEMultipart()
 
-#     ## Parse and convert date to real pandas datetime.
-#     recent_sentiments_list['start_date'] = pd.to_datetime(recent_sentiments_list['start_date'], format="%d.%m.%Y", dayfirst=True)
+    # Fill the email template
+    msg["From"] = corrective_actions_email_from
+    msg["To"] = corrective_actions_email_to
+    msg["Subject"] = corrective_actions_email_title.format(
+        Year=datetime.now().year,
+        Month=calendar.month_name[datetime.now().month],
+        Day=datetime.now().day,
+    )
+    body = MIMEText(
+        corrective_actions_email_text.format(
+            Year=datetime.now().year,
+            Month=calendar.month_name[datetime.now().month],
+            Day=datetime.now().day,
+            prediction=prediction
+        )
+    )
+    msg.attach(body)
 
-#     user_sentiments_df = recent_sentiments_list[recent_sentiments_list["username"].str.contains(user_name)]
+    # Send the email
+    response = ses_client.send_raw_email(
+        Source=corrective_actions_email_from,
+        Destinations=[corrective_actions_email_to],
+        RawMessage={"Data": msg.as_string()},
+    )
 
-#     user_sentiments_df = user_sentiments_df[user_sentiments_df['start_date'] == user_sentiments_df['start_date'].max()]
-
-#     ## Drop duplicates based on start date colum (it is not a timestamp so not able to get last based on hours)
-#     ## Keep last value of the prediction 
-#     return user_sentiments_df.drop_duplicates(subset=['start_date'], keep='first')
+    if (
+        "ResponseMetadata" in response
+        and "HTTPStatusCode" in response["ResponseMetadata"]
+        and response["ResponseMetadata"]["HTTPStatusCode"] == 200
+    ):
+        print("Email sent successfully.")
+    else:
+        print(  # pylint: disable=logging-fstring-interpolation
+            f"Failed to send Email. Status Code: {response.status_code}, Response: {response.text}"
+        )
 
 def main (companies_to_watch : dict, previous_sentiments:dict):
 
-    reliable_sentiments_json =  pd.DataFrame(previous_sentiments["reliable_sentiments"])
+    ## TODO: Replace JSON files reading and updating locally for S3
+    companies_file  = 'companies_to_watch.json'
+    previous_sentiments_file = 'latest_reliable_sentiments.json'
 
-    # if previous_sentiments['reliable_sentiments']:
-    #     reliable_sentiments_json = pd.DataFrame(previous_sentiments['reliable_sentiments'])
-    # else:
-    #     reliable_sentiments_json = pd.DataFrame()
+    bucket_name = 'investing.com-predictions-project-bucket'
+
+    content_object_companies = s3.Object(bucket_name, companies_file)
+    file_content_companies = content_object_companies.get()['Body'].read().decode('utf-8')
+
+    companies_to_watch =  json.loads(file_content_companies)
+
+    content_object_sentiments = s3.Object(bucket_name, previous_sentiments_file)
+    file_content_sentiments = content_object_sentiments.get()['Body'].read().decode('utf-8')
+
+    previous_sentiments =  json.loads(file_content_sentiments)
+    
+    reliable_sentiments_json =  pd.DataFrame(previous_sentiments["reliable_sentiments"])
 
     for i in companies_to_watch["companies"]:
 
@@ -238,6 +287,8 @@ def main (companies_to_watch : dict, previous_sentiments:dict):
                 print('-----------------------')
                 print(last_user_prediction)
 
+                # send_email(last_user_prediction)
+
                 # Check if the new row exists in the JSON data
                 reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
 
@@ -258,18 +309,15 @@ def main (companies_to_watch : dict, previous_sentiments:dict):
 
     reliable_sentiments_json = reliable_sentiments_json.astype(str)
 
+    content_object_sentiments.put(
+        Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
+    )
+    
     # Write the updated DataFrame back to the JSON file
-    with open('latest_reliable_sentiments.json', 'w') as f:
-        json.dump({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}, f)
+    # with open('latest_reliable_sentiments.json', 'w') as f:
+    #     json.dump({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}, f)
 
 if __name__ == '__main__' :
 
-    ## TODO: Replace JSON files reading and updating locally for S3
-    companies_file  = open("companies_to_watch.json")
-    companies_to_watch =  json.load(companies_file)
-
-    previous_sentiments_file = open("latest_reliable_sentiments.json")
-    previous_sentiments =  json.load(previous_sentiments_file)
-
-    main(companies_to_watch, previous_sentiments)
+    main()
     
