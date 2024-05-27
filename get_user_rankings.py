@@ -4,11 +4,8 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import json
 import boto3
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-from datetime import datetime
 import calendar
+from datetime import datetime
 
 scraper = cloudscraper.create_scraper()
 
@@ -18,8 +15,6 @@ s3 = boto3.resource('s3', region_name="eu-west-1")
 # Initialize the SES client
 ses_client = boto3.client("ses", region_name="eu-west-1")
 
-## identifier should be a console configurable input parameter
-identifier = '32237' # EZENTIS: 32237
 
 ## Rankings url, in the form of https://investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID=32237&sentimentsBulkCount=0
 ## Where sentimentsBulkCount is a paginator that groups 50 users per page.
@@ -114,9 +109,6 @@ def get_user_ranking(identifier:str):
     rankings_list['Gan. %'] = rankings_list['Gan. %'].astype(float)
     rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
 
-    ## Truncate user name to 19 characters as it appears in sentiments page, for later comparisson with that dataframe.
-    # rankings_list['Usuario'] = rankings_list['Usuario'].str.slice(0,19)
-
     return rankings_list
 
 def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float, number_of_predictions: int, variation_percentage: float):
@@ -179,39 +171,50 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
 ## Send email to recipients with new predictions
 def send_email(last_user_prediction): 
 
-    prediction = last_user_prediction.astype(str)
+    CHARSET = "UTF-8"
 
-    corrective_actions_email_from = "onehck.internet@gmail.com"
-    corrective_actions_email_to = ["onehck.internet@gmail.com"]
-    corrective_actions_email_text = "New User prediction has been published: \n {prediction}" 
-    corrective_actions_email_title="INVESTING.COM Alerting system, new prediction found: {Day}/{Month}/{Year}"
+    prediction_notification_email_from = "onehck.internet@gmail.com"
+    prediction_notification_email_to = ["onehck.internet@gmail.com"]
+    prediction_notification_email_text = "NEW USER PREDICTION PUBLISHED: \n" 
+    prediction_notification_email_title="INVESTING.COM Alerting system on: {Day}/{Month}/{Year}"
 
-
-    msg = MIMEMultipart()
-
-    # Fill the email template
-    msg["From"] = corrective_actions_email_from
-    msg["To"] = corrective_actions_email_to
-    msg["Subject"] = corrective_actions_email_title.format(
-        Year=datetime.now().year,
-        Month=calendar.month_name[datetime.now().month],
-        Day=datetime.now().day,
-    )
-    body = MIMEText(
-        corrective_actions_email_text.format(
-            Year=datetime.now().year,
-            Month=calendar.month_name[datetime.now().month],
-            Day=datetime.now().day,
-            prediction=prediction
-        )
-    )
-    msg.attach(body)
+    body = """\
+        <html>
+        <head></head>
+        <body>
+            {0}
+        </body>
+        </html>
+        """.format(last_user_prediction.to_html())
 
     # Send the email
-    response = ses_client.send_raw_email(
-        Source=corrective_actions_email_from,
-        Destinations=[corrective_actions_email_to],
-        RawMessage={"Data": msg.as_string()},
+    response = ses_client.send_email(
+        Source=prediction_notification_email_from,
+        Destination={
+            'ToAddresses': [
+                prediction_notification_email_to[0],
+            ],
+        },
+        Message={
+            'Body': {
+                'Html': {
+                    'Charset': CHARSET,
+                    'Data': body,
+                },
+                'Text': {
+                    'Charset': CHARSET,
+                    'Data': prediction_notification_email_text,
+                },
+            },
+            'Subject': {
+                'Charset': CHARSET,
+                'Data':  prediction_notification_email_title.format(
+                                Year=datetime.now().year,
+                                Month=calendar.month_name[datetime.now().month],
+                                Day=datetime.now().day,
+                            ),
+            },
+        },
     )
 
     if (
@@ -283,7 +286,6 @@ def main ():
             print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
 
             last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name)
-            # last_user_prediction = find_latest_user_prediction(trusted_user['Usuario'])
 
             if not last_user_prediction.empty:
 
@@ -291,12 +293,15 @@ def main ():
                 print('-----------------------')
                 print(last_user_prediction)
 
-                # send_email(last_user_prediction)
-
                 # Check if the new row exists in the JSON data
                 reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
 
                 if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
+                    
+                    print("Sending information via email....")
+                    send_email(last_user_prediction)
+
+                    print("EMAIL SENT")
 
                     print('Adding new sentiment ENTRY to the list')
                     reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
@@ -316,10 +321,6 @@ def main ():
     content_object_sentiments.put(
         Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
     )
-    
-    # Write the updated DataFrame back to the JSON file
-    # with open('latest_reliable_sentiments.json', 'w') as f:
-    #     json.dump({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}, f)
 
 if __name__ == '__main__' :
 
