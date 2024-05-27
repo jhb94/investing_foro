@@ -222,7 +222,6 @@ def send_email(last_user_prediction):
 
 def main ():
 
-    ## TODO: Replace JSON files reading and updating locally for S3
     companies_file  = 'companies_to_watch.json'
     previous_sentiments_file = 'latest_reliable_sentiments.json'
 
@@ -298,7 +297,7 @@ def main ():
                     reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
 
                 else : 
-                    print("Entry already exist in the local JSON list")
+                    print("Entry already exist in predictions JSON list")
             
             else:
                 
