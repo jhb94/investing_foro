@@ -220,7 +220,7 @@ def send_email(last_user_prediction):
             f"Failed to send Email. Status Code: {response.status_code}, Response: {response.text}"
         )
 
-def main (companies_to_watch : dict, previous_sentiments:dict):
+def main ():
 
     ## TODO: Replace JSON files reading and updating locally for S3
     companies_file  = 'companies_to_watch.json'
