@@ -8,7 +8,7 @@
             "name": "Depurador de Python: Archivo actual",
             "type": "debugpy",
             "request": "launch",
-            "program": "get_user_rankings.py",
+            "program": "get_member_list.py",
             "console": "integratedTerminal"
         }
     ]

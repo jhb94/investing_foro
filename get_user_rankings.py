@@ -6,8 +6,10 @@ import json
 import boto3
 import calendar
 from datetime import datetime
+from typing import List
+import time
 
-scraper = cloudscraper.create_scraper(browser='chrome')
+scraper = cloudscraper.create_scraper()
 
 # Initialize the BOTO3 client
 s3 = boto3.resource('s3', region_name="eu-west-1")
@@ -15,22 +17,16 @@ s3 = boto3.resource('s3', region_name="eu-west-1")
 # Initialize the SES client
 ses_client = boto3.client("ses", region_name="eu-west-1")
 
-
 ## Rankings url, in the form of https://investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID=32237&sentimentsBulkCount=0
 ## Where sentimentsBulkCount is a paginator that groups 50 users per page.
-## Fixed param.
-rankings_url = f'https://es.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
-
-## Conditions we need to apply to a user in order to trust the predictions made.
-win_percentage = 80
-number_of_predictions = 10
-variation_percentage = 10
+rankings_url = 'www.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
 
 '''
-SAMPLE PAYLOAD:
+SAMPLE PAYLOAD: 
 <tr>
     <td class="first left">1</td>
     <td class="left">Marcos Rolf Fischer Stauber</td>
+        <a href="/members/200547541/sentiments-equities">Marcos Rolf Fischer Stauber</a>
     <td>86</td>
     <td>86</td>
     <td>78</td>
@@ -40,6 +36,7 @@ SAMPLE PAYLOAD:
 <tr>
     <td class="first left">2</td>
     <td class="left">Francisco Garcia</td>
+        <a href="/members/200547998/sentiments-equities">Francisco Garcia</a>
     <td>1</td>
     <td>1</td>
     <td>1</td>
@@ -72,7 +69,13 @@ SAMPLE PAYLOAD:
 '''
 
 ## Function that receives the identifier or symbol of a company and returns all the users that made predictions
-def get_user_ranking(identifier:str):
+## IMPORTANT: As the user link will only be displayed on the page belonging to the user's preferred language, it is neccessary
+## To loop all the countries and form a combined dataframe with all the data. Then rows whoose UserLink is null are dropped.
+def get_user_ranking(identifier:str, countries: List[str]):
+
+    # rankings_list_full = None
+
+    # for country in countries:
 
     iterator = 0
     response = ''
@@ -80,14 +83,23 @@ def get_user_ranking(identifier:str):
     header_data = [['Rango', 'Usuario', 'Total',	'Cerrados',	'Ganadores','Gan. %','% Var.', 'UserLink']]
 
     while records_left:
+
+        # rankings_bulk_records = requests.get(f'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
+        rankings_bulk_records = requests.get(f'https://{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
         
-        rankings_bulk_records = requests.get(f'{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
+        ## 403 forbidden
+        ## 429 Rate limited.
+        if rankings_bulk_records.status_code != 200:
+            break
 
         if rankings_bulk_records.content == b'':
             records_left = False
         else:
             response += rankings_bulk_records.content.decode()
             iterator += 1
+    
+    if len(response) == 0:
+        next 
     
     soup = BeautifulSoup(response, "html.parser")
 
@@ -107,9 +119,17 @@ def get_user_ranking(identifier:str):
 
     rankings_list['% Var.'] = rankings_list['% Var.'].str.replace('%', '', regex=False).astype(float)
     rankings_list['Gan. %'] = rankings_list['Gan. %'].astype(float)
-    rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
+    # rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
+
+    # rankings_list = rankings_list.dropna(subset=['UserLink'])
+
+    # if  rankings_list_full is None:
+    #     rankings_list_full = rankings_list
+    # else:
+    #     rankings_list_full = pd.concat([rankings_list_full , rankings_list], axis=0)
 
     return rankings_list
+
 
 def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float, number_of_predictions: int, variation_percentage: float):
 
@@ -123,11 +143,14 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
 
     ## TODO: Replace AWS Proxy solution as It may stop working at some point and is dangerous
     ## Taken from Irish proxy list: https://spys.one/free-proxy-list/IE/
-    ## There are some AWS proxies in the list, below is one of those.
-    proxy = '52.236.0.6:8080'
+    user_equities_sentiments_html_page = scraper.get(f'https://www.investing.com{user_link}')
+    
+    ## 403 too many requests
+    ## 504 user page does not load
+    if user_equities_sentiments_html_page.status_code != 200:
+        return False
 
-    user_equities_sentiments_html_page = scraper.get(f'https://es.investing.com{user_link}', proxies={'http':proxy})
-
+    ## TODO: Accept only 200
     soup = BeautifulSoup(user_equities_sentiments_html_page.text, "html.parser")
 
     sentiments_table = soup.find('table', attrs={'id':'sentiments_table'})
@@ -169,12 +192,10 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
     return user_sentiments_list.drop_duplicates(subset=['PredictionDate'], keep='first')
 
 ## Send email to recipients with new predictions
-def send_email(last_user_prediction): 
+def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email_from: str, prediction_notification_email_to: List[str] ): 
 
     CHARSET = "UTF-8"
 
-    prediction_notification_email_from = "onehck.internet@gmail.com"
-    prediction_notification_email_to = ["onehck.internet@gmail.com"]
     prediction_notification_email_text = "NEW USER PREDICTION PUBLISHED: \n" 
     prediction_notification_email_title="INVESTING.COM Alerting system on: {Day}/{Month}/{Year}"
 
@@ -192,7 +213,7 @@ def send_email(last_user_prediction):
         Source=prediction_notification_email_from,
         Destination={
             'ToAddresses': [
-                prediction_notification_email_to[0],
+                address for address  in prediction_notification_email_to
             ],
         },
         Message={
@@ -230,6 +251,9 @@ def send_email(last_user_prediction):
 
 def main ():
 
+    ## READ INITIALIZATION FILES ##
+    ## ------------------------- ##
+
     companies_file  = 'companies_to_watch.json'
     previous_sentiments_file = 'latest_reliable_sentiments.json'
 
@@ -246,6 +270,21 @@ def main ():
     previous_sentiments =  json.loads(file_content_sentiments)
     
     reliable_sentiments_json =  pd.DataFrame(previous_sentiments["reliable_sentiments"])
+    
+    with open('config.json', 'r') as config_file:
+        app_config = json.load(config_file)
+
+    ## ------------------------- ##
+
+    ## READ USER DATABASE CSV CONTAINING USER ID's ##
+    ## ------------------------- ##
+    ## May below be non-performant and could be better to use an indexed sqlite db instead for faster access
+    ## How-to in this link: https://www.sqlitetutorial.net/sqlite-import-csv/
+
+    user_database = pd.read_csv('user_data.csv', header=True)
+
+    ## ------------------------- ##
+
 
     for i in companies_to_watch["companies"]:
 
@@ -257,7 +296,7 @@ def main ():
 
         print("Updating data predictions for company: ", company_name , " with identifier: ", identifier)
 
-        rankings_list = get_user_ranking(identifier)
+        rankings_list = get_user_ranking(identifier, app_config["countries"])
 
         print(rankings_list)
 
@@ -285,7 +324,23 @@ def main ():
 
             print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
 
-            last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name)
+            if trusted_user['UserLink'] != '' :
+
+                last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name)
+
+                if not last_user_prediction:
+                    next
+
+            elif trusted_user['UserLink'] == '':
+                
+                ## Format: members/200303883/sentiments-equities
+                user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
+                trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
+
+            else:
+                next
+
+            last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
 
             if not last_user_prediction.empty:
 
@@ -299,7 +354,7 @@ def main ():
                 if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
                     
                     print("Sending information via email....")
-                    send_email(last_user_prediction)
+                    send_email(last_user_prediction, app_config["emailFrom"] , app_config["emailTo"] )
 
                     print("EMAIL SENT")
 
@@ -324,5 +379,11 @@ def main ():
 
 if __name__ == '__main__' :
 
+    start_time = time.time()
+
     main()
     
+    end_time = time.time()
+    execution_time_seconds = end_time - start_time
+    minutes, seconds = divmod(execution_time_seconds, 60)
+    print(f"INVESTING.COM crawling Script executed in {int(minutes)} minutes and {seconds:.2f} seconds.")
