@@ -8,6 +8,8 @@ import calendar
 from datetime import datetime
 from typing import List
 import time
+import random
+import utils.proxy_page_port_functionality as proxy_class
 
 scraper = cloudscraper.create_scraper()
 
@@ -19,7 +21,7 @@ ses_client = boto3.client("ses", region_name="eu-west-1")
 
 ## Rankings url, in the form of https://investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID=32237&sentimentsBulkCount=0
 ## Where sentimentsBulkCount is a paginator that groups 50 users per page.
-rankings_url = 'www.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
+rankings_url = 'es.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
 
 '''
 SAMPLE PAYLOAD: 
@@ -119,7 +121,7 @@ def get_user_ranking(identifier:str, countries: List[str]):
 
     rankings_list['% Var.'] = rankings_list['% Var.'].str.replace('%', '', regex=False).astype(float)
     rankings_list['Gan. %'] = rankings_list['Gan. %'].astype(float)
-    # rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
+    rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
 
     # rankings_list = rankings_list.dropna(subset=['UserLink'])
 
@@ -139,22 +141,52 @@ def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float
 
     return adjusted_rankings
 
-def find_latest_user_prediction_scrapper(user_link: str, company_name:str):
+def find_latest_user_prediction_scrapper(user_link: str, company_name:str, proxies: List[str]):
 
     ## TODO: Replace AWS Proxy solution as It may stop working at some point and is dangerous
     ## Taken from Irish proxy list: https://spys.one/free-proxy-list/IE/
-    user_equities_sentiments_html_page = scraper.get(f'https://www.investing.com{user_link}')
-    
-    ## 403 too many requests
-    ## 504 user page does not load
-    if user_equities_sentiments_html_page.status_code != 200:
-        return False
+
+    retries = 2
+
+    while retries > 0:
+        try:
+
+            random_proxy = random.choice(proxies)
+            proxy_type = random_proxy.split(":")[0].lower()
+            proxy = {proxy_type: random_proxy}
+
+            user_equities_sentiments_html_page = scraper.get(f'https://es.investing.com{user_link}', timeout=10, proxies=proxy)
+            
+            ## 403 too many requests
+            ## 504 user page does not load
+            if user_equities_sentiments_html_page.status_code != 200:
+                print(f"Page {user_link} couldn't be loaded, status code: {user_equities_sentiments_html_page.status_code}")
+                
+                if user_equities_sentiments_html_page.status_code == 429 :
+                    
+                    print("Rate Limit (429) exceeded, waiting 20s to retry....")
+                    time.sleep(20)
+                
+                if user_equities_sentiments_html_page.status_code == 403 :
+                    
+                    print("Getting FORBIDDEN (403) status responses, waiting 20s before retrying....")
+                    time.sleep(20)
+
+            retries -= 1
+
+        except Exception as e:
+            print(f"Error processing GET request to 'https://es.investing.com{user_link}'. ERROR: {e}")
+            
 
     ## TODO: Accept only 200
     soup = BeautifulSoup(user_equities_sentiments_html_page.text, "html.parser")
 
     sentiments_table = soup.find('table', attrs={'id':'sentiments_table'})
     
+    if sentiments_table is None:
+        print(f"User data from link {user_link} could not be retrieved, sentiments object is NULL")
+        return None
+
     table_data = [[cell.text for cell in row("td")]
                         for row in sentiments_table.find_all('tr')]
 
@@ -250,6 +282,12 @@ def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email
         )
 
 def main ():
+    
+    ## Get some proxies in order to make the calls for us since AWS EC2 and service instances IP's are generally banned in cloudfare.
+    # proxies_url = 'https://spys.one/free-proxy-list/US/'
+    proxies_url = 'https://spys.one/free-proxy-list/ES'
+
+    proxies = proxy_class.get_proxies(proxies_url)
 
     ## READ INITIALIZATION FILES ##
     ## ------------------------- ##
@@ -281,7 +319,8 @@ def main ():
     ## May below be non-performant and could be better to use an indexed sqlite db instead for faster access
     ## How-to in this link: https://www.sqlitetutorial.net/sqlite-import-csv/
 
-    user_database = pd.read_csv('user_data.csv', header=True)
+    # UNCOMMENT if user database in place
+    # user_database = pd.read_csv('user_data.csv', header=True)
 
     ## ------------------------- ##
 
@@ -324,9 +363,9 @@ def main ():
 
             print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
 
-            if trusted_user['UserLink'] != '' :
+            if trusted_user['UserLink'] is not None and trusted_user['UserLink'] != '' :
 
-                last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name)
+                last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name, proxies)
 
                 if not last_user_prediction:
                     next
@@ -334,15 +373,19 @@ def main ():
             elif trusted_user['UserLink'] == '':
                 
                 ## Format: members/200303883/sentiments-equities
-                user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
-                trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
+
+                ## UNCOMMENT if user database in place
+                # user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
+                # trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
+
+                print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
 
             else:
                 next
 
-            last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
-
-            if not last_user_prediction.empty:
+            if  last_user_prediction is not None:
+                
+                last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
 
                 print('Last prediction of user is: ')
                 print('-----------------------')
