@@ -334,7 +334,9 @@ def main ():
         variation_percentage = i["variation_percentage"]
 
         print("Updating data predictions for company: ", company_name , " with identifier: ", identifier)
-
+        
+        ## Esta funcion se descarga la tabla de aquí como un dataframe:
+        ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
         rankings_list = get_user_ranking(identifier, app_config["countries"])
 
         print(rankings_list)
@@ -351,6 +353,7 @@ def main ():
 
         print('-----------------------')
 
+        ## Aquí nos quedamos solo con los buenos, las trust conditions eliminan los cazurros
         print(trusted_users)
 
         print('Total of users : ', len(trusted_users) )
@@ -415,7 +418,8 @@ def main ():
     print('Updating json file')
 
     reliable_sentiments_json = reliable_sentiments_json.astype(str)
-
+    
+    ## UPDATE EL OBJETO DE S3 para meter las nuevas predicciones en caso de que las hubiera.
     content_object_sentiments.put(
         Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
     )
