@@ -4,7 +4,7 @@
 # divido cada pais en un json para liberar la memoria
 # iberdrola ha tardado 6 mins. en el ranking habia 1100 y despues del filtrado 2 maquinas.
 # nvidia--> mins. ranking de 6133x8 y despues de filtrar 3 maquinas
-
+# Con nvidia tarda la vida. No tiene sentido llamar al ranking para cada pais. Hay que cambiar esto
 
 
 import requests
