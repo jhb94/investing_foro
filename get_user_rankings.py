@@ -21,7 +21,9 @@ ses_client = boto3.client("ses", region_name="eu-west-1")
 
 ## Rankings url, in the form of https://investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID=32237&sentimentsBulkCount=0
 ## Where sentimentsBulkCount is a paginator that groups 50 users per page.
-rankings_url = 'es.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
+# rankings_url = 'es.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
+# JB: separando por countries
+rankings_url = '.investing.com/common/sentiments/sentiments_ajax.php?action=get_user_rankings_bulk_records&item_ID='
 
 '''
 SAMPLE PAYLOAD: 
@@ -132,7 +134,6 @@ def get_user_ranking(identifier:str, countries: List[str]):
 
     return rankings_list
 
-
 def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float, number_of_predictions: int, variation_percentage: float):
 
     adjusted_rankings = rankings_list[rankings_list['Gan. %'] >= win_percentage]
@@ -171,7 +172,8 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, proxi
                     
                     print("Getting FORBIDDEN (403) status responses, waiting 20s before retrying....")
                     time.sleep(20)
-
+            # JB: por asegurar un sleep
+            # time.sleep(5)
             retries -= 1
 
         except Exception as e:
@@ -221,8 +223,8 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, proxi
 
     ## Drop duplicates based on start date colum (it is not a timestamp so not able to get last based on hours)
     ## Keep last value of the prediction 
+    # return user_sentiments_list.drop_duplicates(subset=['PredictionDate'], keep='first')
     return user_sentiments_list.drop_duplicates(subset=['PredictionDate'], keep='first')
-
 ## Send email to recipients with new predictions
 def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email_from: str, prediction_notification_email_to: List[str] ): 
 
@@ -288,6 +290,7 @@ def main ():
     proxies_url = 'https://spys.one/free-proxy-list/ES'
 
     proxies = proxy_class.get_proxies(proxies_url)
+
 
     ## READ INITIALIZATION FILES ##
     ## ------------------------- ##
@@ -370,9 +373,12 @@ def main ():
 
                 last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name, proxies)
 
-                if not last_user_prediction:
-                    next
-
+                # JB: un df vacio no es none
+                # if not last_user_prediction:
+                if last_user_prediction.empty:
+                    # JB: este next no hace lo que queremos. hay que usar continue
+                    # next
+                    continue
             elif trusted_user['UserLink'] == '':
                 
                 ## Format: members/200303883/sentiments-equities
@@ -384,8 +390,9 @@ def main ():
                 print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
 
             else:
-                next
-
+                # JB: este next no hace lo que queremos. hay que usar continue
+                # next
+                continue
             if  last_user_prediction is not None:
                 
                 last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
