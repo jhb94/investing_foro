@@ -295,17 +295,18 @@ def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email
 def main ():
     
     ## Get some proxies in order to make the calls for us since AWS EC2 and service instances IP's are generally banned in cloudfare.
+    ## spys.one has various different proxies depending on the country were they are located
     # proxies_url = 'https://spys.one/free-proxy-list/US/'
     proxies_url = 'https://spys.one/free-proxy-list/ES'
 
     proxies = proxy_class.get_proxies(proxies_url)
-
 
     ## READ INITIALIZATION FILES ##
     ## ------------------------- ##
 
     companies_file  = 'companies_to_watch.json'
     previous_sentiments_file = 'latest_reliable_sentiments.json'
+    config_file = "config.json"
 
     bucket_name = 'investing.com-predictions-project-bucket'
 
@@ -313,171 +314,181 @@ def main ():
     file_content_companies = content_object_companies.get()['Body'].read().decode('utf-8')
 
     companies_to_watch =  json.loads(file_content_companies)
+    
+    print("Companies list file correctly loaded from S3")
 
-    with open('config.json', 'r') as config_file:
-        app_config = json.load(config_file)
-    ## ------------------------- ##
+    content_object_config = s3.Object(bucket_name, config_file)
+    file_content_config = content_object_config.get()['Body'].read().decode('utf-8')
 
-    ## READ USER DATABASE CSV CONTAINING USER ID's ##
-    ## ------------------------- ##
-    ## May below be non-performant and could be better to use an indexed sqlite db instead for faster access
-    ## How-to in this link: https://www.sqlitetutorial.net/sqlite-import-csv/
+    app_config =  json.loads(file_content_config)
 
-    # UNCOMMENT if user database in place
-    # user_database = pd.read_csv('user_data.csv', header=True)
+    print("Configuration file correctly loaded from S3")
 
-    ## ------------------------- ##
+    ## Get current country, Process is run once per country every 2 hours.
+    ## Most of them won't throw any results but being fast is not a priority 
+    ## as long as the prediction arrives in less than 2 hours since posted
+    ## GET current country and set the new one as the next in the list
+    country = app_config["current_country"]
+    
+    next_country =  app_config["countries"][app_config["countries"].index(country) + 1]
 
-    # Iterate over countries
-    for country in app_config["countries"]:
-        print(f'-------------------')
-        print(f'{country}---')
-        print(f'-------------------')
-        # TODO: Que para cada country lea su propio json, si no existe qu elo cree
-        previous_sentiments_file = country + '/' + previous_sentiments_file
+    app_config["current_country"] = next_country
 
-        try:
-            s3.Object(bucket_name, previous_sentiments_file).load()
-            print("El archivo ya existe.")
-        except ClientError as e:
-            if e.response['Error']['Code'] == '404':
-                print("El archivo no existe. Creándolo ahora...")
-                # Crear el archivo si no existe
-                s3.Object(bucket_name, previous_sentiments_file).put(Body='')
-                print("Archivo creado.")
-            else:
-                raise  # Re-lanza la excepción si es otro tipo de error
+    print(f'-------------------')
+    print(f'{country}---')
+    print(f'-------------------')
+    
+    ## We use a common json file with all countries prediction 
+    previous_sentiments_file =  previous_sentiments_file
 
-
-
-        content_object_sentiments = s3.Object(bucket_name, previous_sentiments_file)
-
-        file_content_sentiments = content_object_sentiments.get()['Body'].read().decode('utf-8')
-
-        initial_schema = {
-            "reliable_sentiments": [
-                {
-                    "PredictionDate": "",
-                    "Name": "",
-                    "Open": "",
-                    "% Var.": "",
-                    "DateForTheValue": "",
-                    "PredictionValue": ""
-                }
-            ]
-        }
-        if file_content_sentiments:
-            previous_sentiments = json.loads(file_content_sentiments)
+    try:
+        s3.Object(bucket_name, previous_sentiments_file).load()
+        print("Previous sentiments file already exists in S3 and was correctly loaded now.")
+    except ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            print("No previous sentiments file found in bucket, creating a new one from scratch...")
+            # Crear el archivo si no existe
+            s3.Object(bucket_name, previous_sentiments_file).put(Body='')
+            print("File initialized.")
         else:
-            previous_sentiments = initial_schema
+            raise  # Re-lanza la excepción si es otro tipo de error
 
-        reliable_sentiments_json = pd.DataFrame(previous_sentiments["reliable_sentiments"])
+    content_object_sentiments = s3.Object(bucket_name, previous_sentiments_file)
+
+    file_content_sentiments = content_object_sentiments.get()['Body'].read().decode('utf-8')
+
+    initial_schema = {
+        "reliable_sentiments": [
+            {
+                "PredictionDate": "",
+                "Name": "",
+                "Open": "",
+                "% Var.": "",
+                "DateForTheValue": "",
+                "PredictionValue": ""
+            }
+        ]
+    }
+    if file_content_sentiments:
+        previous_sentiments = json.loads(file_content_sentiments)
+    else:
+        previous_sentiments = initial_schema
+
+    reliable_sentiments_json = pd.DataFrame(previous_sentiments["reliable_sentiments"])
 
 
-        # TODO: que para cada country escriba su propio json
+    # TODO: que para cada country escriba su propio json
 
-        for i in companies_to_watch["companies"]:
+    for i in companies_to_watch["companies"]:
 
-            identifier = i["identifier"]
-            company_name = i["name"]
-            win_percentage = i["win_percentage"]
-            number_of_predictions = i["number_of_predictions"]
-            variation_percentage = i["variation_percentage"]
+        identifier = i["identifier"]
+        company_name = i["name"]
+        win_percentage = i["win_percentage"]
+        number_of_predictions = i["number_of_predictions"]
+        variation_percentage = i["variation_percentage"]
 
-            print("Updating data predictions for company: ", company_name , " with identifier: ", identifier)
+        print("Updating data predictions for company: ", company_name , " with identifier: ", identifier)
 
-            ## Esta funcion se descarga la tabla de aquí como un dataframe:
-            ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
-            rankings_list = get_user_ranking(identifier, country)
+        ## Esta funcion se descarga la tabla de aquí como un dataframe:
+        ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
+        rankings_list = get_user_ranking(identifier, country)
 
-            print(rankings_list)
+        print(rankings_list)
 
-            trusted_users = apply_trust_conditions(rankings_list,  win_percentage, number_of_predictions, variation_percentage)
+        trusted_users = apply_trust_conditions(rankings_list,  win_percentage, number_of_predictions, variation_percentage)
 
-            print('-----------------------')
+        print('-----------------------')
 
-            print('ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL :', identifier)
-            print('PARAMETERS:')
-            print('WON % RATE :  ', win_percentage)
-            print('TOTAL NUMBER OF PREDICTIONS : ', number_of_predictions)
-            print('SUBYACENT % VARIATION RATE : ', win_percentage)
+        print('ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL :', identifier)
+        print('PARAMETERS:')
+        print('WON % RATE :  ', win_percentage)
+        print('TOTAL NUMBER OF PREDICTIONS : ', number_of_predictions)
+        print('SUBYACENT % VARIATION RATE : ', win_percentage)
 
-            print('-----------------------')
+        print('-----------------------')
 
-            ## Aquí nos quedamos solo con los buenos, las trust conditions eliminan los cazurros
-            print(trusted_users)
+        ## Aquí nos quedamos solo con los buenos, las trust conditions eliminan los cazurros
+        print(trusted_users)
 
-            print('Total of users : ', len(trusted_users) )
+        print('Total of users : ', len(trusted_users) )
 
-            print('-----------------------')
+        print('-----------------------')
 
-            print('Looking for trustable users latest predictions')
+        print('Looking for trustable users latest predictions')
 
-            for _, trusted_user in trusted_users.iterrows():
+        for _, trusted_user in trusted_users.iterrows():
 
-                print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
+            print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
 
-                if trusted_user['UserLink'] is not None and trusted_user['UserLink'] != '' :
+            if trusted_user['UserLink'] is not None and trusted_user['UserLink'] != '' :
 
-                    last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name, proxies)
+                last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name, proxies)
 
-                    # JB: un df vacio no es none
-                    # if not last_user_prediction:
-                    if last_user_prediction.empty:
-                        # JB: este next no hace lo que queremos. hay que usar continue
-                        # next
-                        continue
-                elif trusted_user['UserLink'] == '':
-
-                    ## Format: members/200303883/sentiments-equities
-
-                    ## UNCOMMENT if user database in place
-                    # user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
-                    # trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
-
-                    print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
-
-                else:
+                # JB: un df vacio no es none
+                # if not last_user_prediction:
+                if last_user_prediction.empty:
                     # JB: este next no hace lo que queremos. hay que usar continue
                     # next
                     continue
-                if  last_user_prediction is not None:
+            elif trusted_user['UserLink'] == '':
 
-                    last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
+                ## Format: members/200303883/sentiments-equities
 
-                    print('Last prediction of user is: ')
-                    print('-----------------------')
-                    print(last_user_prediction)
+                ## UNCOMMENT if user database in place
+                # user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
+                # trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
 
-                    # Check if the new row exists in the JSON data
-                    reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
+                print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
 
-                    if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
+            else:
+                # JB: este next no hace lo que queremos. hay que usar continue
+                # next
+                continue
+            if  last_user_prediction is not None:
 
-                        print("Sending information via email....")
-                        send_email(last_user_prediction, app_config["emailFrom"] , app_config["emailTo"] )
+                last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
 
-                        print("EMAIL SENT")
+                print('Last prediction of user is: ')
+                print('-----------------------')
+                print(last_user_prediction)
 
-                        print('Adding new sentiment ENTRY to the list')
-                        reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
+                # Check if the new row exists in the JSON data
+                reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
 
-                    else :
-                        print("Entry already exist in predictions JSON list")
+                if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
 
-                else:
+                    print("Sending information via email....")
+                    send_email(last_user_prediction, app_config["emailFrom"] , app_config["emailTo"] )
 
-                    print('-----------------------')
-                    print('This user does not have any recent predictions')
+                    print("EMAIL SENT")
 
-        print('Updating json file')
+                    print('Adding new sentiment ENTRY to the list')
+                    reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
 
-        reliable_sentiments_json = reliable_sentiments_json.astype(str)
+                else :
+                    print("Entry already exist in predictions JSON list")
 
-        ## UPDATE EL OBJETO DE S3 para meter las nuevas predicciones en caso de que las hubiera.
-        content_object_sentiments.put(
-            Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
-        )
+            else:
+
+                print('-----------------------')
+                print('This user does not have any recent predictions')
+
+    print('Updating json file')
+
+    reliable_sentiments_json = reliable_sentiments_json.astype(str)
+
+    ## UPDATE S3 with new predictions found in case there are.
+    content_object_sentiments.put(
+        Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
+    )
+
+    print("Predictions file correctly updated in S3")
+
+    content_object_config.put(
+        Body=(bytes(json.dumps(app_config).encode('UTF-8')))
+    )
+
+    print(f"Configuration file correctly updated in s3, next country in the loop is {next_country}")
 
 if __name__ == '__main__' :
 
