@@ -37,3 +37,7 @@ The way it's done, and this functional idea can be applied to other forums behav
 Below is shown a diagram with the design/ architecture of the full concept.
 
 ![Arquitecture](resources/Arqui.png)
+
+Below is shown the terminal output of a correct execution:
+
+![Terminal Output](resources/Correct_execution.png)
