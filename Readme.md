@@ -11,7 +11,7 @@ The way it's done, and this functional idea can be applied to other forums behav
                 "win_percentage" : 80,
                 "number_of_predictions": 10,
                 "variation_percentage" : 20
-    }````
+    }
 
 * identifier: This number can be obtained by inspecting the browser's network and noting down the ?identifier query string that is used in the AJAX call that retreives the user ranking
 * name: Used inside the function find_latest_user_prediction_scrapper(), to filter those user predictions in the user page belonging to the company, this value can also be identified inspecting the browser's network.
