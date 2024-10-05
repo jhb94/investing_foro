@@ -11,7 +11,7 @@ The way it's done, and this functional idea can be applied to other forums behav
                 "win_percentage" : 80,
                 "number_of_predictions": 10,
                 "variation_percentage" : 20
-    }`````
+    }````
 
 * identifier: This number can be obtained by inspecting the browser's network and noting down the ?identifier query string that is used in the AJAX call that retreives the user ranking
 * name: Used inside the function find_latest_user_prediction_scrapper(), to filter those user predictions in the user page belonging to the company, this value can also be identified inspecting the browser's network.
@@ -33,3 +33,7 @@ The way it's done, and this functional idea can be applied to other forums behav
     3.4 Execute the find_latest_user_prediction_scrapper() function, which will get, for every "trusted" user, the latest prediction made. If this prediction does exist in the latest_reliable_sentiments.json file, it will do nothing, if it doesn't exist, it will send an email with the predition (send_email()) and it will add it to the json file tracking the predictions.
 
     May 2024.
+
+Below is shown a diagram with the design/ architecture of the full concept.
+
+![Arquitecture](resources/Arqui.png)
