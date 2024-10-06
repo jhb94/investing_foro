@@ -2,6 +2,7 @@
     "companies":
             [{
                 "identifier" : 32237,
+                "ticker": "",
                 "name": "Ezentis",
                 "win_percentage" : 80,
                 "number_of_predictions": 10,
@@ -9,6 +10,7 @@
             },
             {
                 "identifier" : 32191,
+                "ticker":"",
                 "name": "Audax Renovables",
                 "win_percentage" : 80,
                 "number_of_predictions": 5,

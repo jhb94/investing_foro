@@ -430,7 +430,7 @@ def main ():
                     # JB: este next no hace lo que queremos. hay que usar continue
                     # next
                     continue
-            elif trusted_user['UserLink'] == '':
+            elif trusted_user['UserLink'] is None:
 
                 ## Format: members/200303883/sentiments-equities
 
@@ -439,11 +439,8 @@ def main ():
                 # trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
 
                 print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
-
-            else:
-                # JB: este next no hace lo que queremos. hay que usar continue
-                # next
                 continue
+            
             if  last_user_prediction is not None:
 
                 last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
