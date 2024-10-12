@@ -237,6 +237,11 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, count
     
     user_sentiments_list = user_sentiments_list[user_sentiments_list['Name'] == company_name]
 
+    ## It can happen that there is not a prediction for this company in the users main equities page.
+    if user_sentiments_list.empty:
+        logger.info("User may not have done predictions in this company for a while. No data found.")
+        return None
+
     # Drop the original 'Forecast' column
     user_sentiments_list = user_sentiments_list.drop(columns=['Forecast'])
 
