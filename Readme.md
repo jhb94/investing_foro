@@ -1,6 +1,6 @@
 ## INVESTING:COM Snentiments Analysis Alerting System
 
-Repository that monitores the behaviour of the best users in INVESTING.COM user forum.
+Repository that monitores the behaviour of the best users in [INVESTING](https://investing.com) user forum.
 
 The idea is to create a system that monitors the sentiments that the top performing users create on top companies.
 
@@ -33,12 +33,40 @@ Follow below steps to run it. This is intented to be run inside a EC2 instance i
 
     - If you are restarting the application you should also delete the log (only if it exists) that should be in the instance were the application is running.
 
-3. Run the get_user_rankings.py file. This file should be run on cron mode, f.e. every 15 minutes, and send the new alerts via email. This code has the following structure:
+3. Install requirements.
 
-    - 3.1 Loop the companies in the json file. Apply below steps for every company.
-    - 3.2. Get the user ranking for every company in the function get_user_ranking
-    - 3.3 Apply trust conditions. In this function the input parameters set for every company are used to filter the rankings dataset and get only the best predictors. This is done in the apply_trust_conditions() function
-    - 3.4 Execute the find_latest_user_prediction_scrapper() function, which will get, for every "trusted" user, the latest prediction made. If this prediction does exist in the latest_reliable_sentiments.json file, it will do nothing, if it doesn't exist, it will send an email with the predition (send_email()) and it will add it to the json file tracking the predictions.
+    - Python modules
+    ```console
+    pip3 install -r requirements.txt
+    ```
+    - Curl cffi module may not be correctly installed, if you receive a module not found run:
+    ```console
+    pip3 install curl_cffi
+    ```
+    If you need to do tests in the terminal you can also install the docker image of the underlying library:
+
+    Chrome:
+    ```console
+    docker pull lwthiker/curl-impersonate:0.6-chrome
+    ```
+    FireFox:
+    ```console
+    docker pull lwthiker/curl-impersonate:0.6-ff
+    ```
+    And do trials with:
+    ```console
+    docker run --rm lwthiker/curl-impersonate:0.6-chrome curl_chrome110 https://www.scrapingcourse.com/ecommerce/
+    ```
+    Taken from [cffi](https://www.zenrows.com/blog/curl-impersonate#scrape-html)
+
+    This may be of help when checking for possible IP bans
+
+4. Run the get_user_rankings.py file. This file should be run on cron mode, f.e. every 15 minutes, and send the new alerts via email. This code has the following structure:
+
+    - 4.1 Loop the companies in the json file. Apply below steps for every company.
+    - 4.2. Get the user ranking for every company in the function get_user_ranking
+    - 4.3 Apply trust conditions. In this function the input parameters set for every company are used to filter the rankings dataset and get only the best predictors. This is done in the apply_trust_conditions() function
+    - 4.4 Execute the find_latest_user_prediction_scrapper() function, which will get, for every "trusted" user, the latest prediction made. If this prediction does exist in the latest_reliable_sentiments.json file, it will do nothing, if it doesn't exist, it will send an email with the predition (send_email()) and it will add it to the json file tracking the predictions.
 
 In order to create then cron job, input this line inside your crontab jobs:
 
