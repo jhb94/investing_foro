@@ -1,12 +1,11 @@
 import cloudscraper
 from bs4 import BeautifulSoup
-import pandas as pd
-import concurrent.futures
-import time
 import re
-import random
 import execjs
-from typing import List
+import logging
+
+logging.basicConfig(filename="log_latest.log", level=logging.INFO)
+logger = logging.getLogger()
 
 def get_xor_variables(script_string: str):
     # JavaScript code to decode the obfuscated variables
@@ -59,7 +58,7 @@ def get_xor_variables(script_string: str):
         
         variable_dict[variable] = value
 
-    print(f"Variable dict correctly returned from XOR variable decryption")
+    logger.info("Variable dict correctly returned from XOR variable decryption")
     return variable_dict
 
 def get_substring_between(main_string: str, start_substring: str, end_substring: str):
@@ -125,6 +124,6 @@ def get_proxies(proxies_url:str):
         except Exception as e:
             continue
     
-    print('Using the following proxy list, only HTTP/HTTPS')
-    print(proxies)
+    logger.info('Using the following proxy list, only HTTP/HTTPS')
+    logger.info(proxies)
     return proxies

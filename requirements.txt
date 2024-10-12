@@ -1,7 +1,9 @@
-requests
-beautifulsoup4
-pandas
-cloudscraper
-boto3
-PyExecJS
-
+requests==2.32.3
+beautifulsoup4==4.12.3
+pandas==2.2.2
+cloudscraper==1.2.71
+boto3==1.35.20
+botocore==1.35.20
+PyExecJS==1.5.1
+logging
+cffi==1.17.1

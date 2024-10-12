@@ -1,6 +1,12 @@
+## INVESTING:COM Snentiments Analysis Alerting System
+
 Repository that monitores the behaviour of the best users in INVESTING.COM user forum.
 
-The way it's done, and this functional idea can be applied to other forums behaving the same way:
+The idea is to create a system that monitors the sentiments that the top performing users create on top companies.
+
+## INSTALATION/ PUT THIS IN RUN MODE
+
+Follow below steps to run it. This is intented to be run inside a EC2 instance in AWS, S3 is where the storage and configuration data will reside.
 
 1. Input the companies you want to put an aye on in the file companies_to_watch.json. Evey company in that configuration file has the following attribute structure:
 
@@ -19,25 +25,45 @@ The way it's done, and this functional idea can be applied to other forums behav
 * number_of_predictions: This parameter is used to filter out those users that do not have the correct level of depth.
 * variation_percentage: How much % of benefit could that user have obtained by investing all the predictions made.
 
-2. If restarting the application clean up the latest_reliable_sentiments.json file by leaving the realiable_sentiments object empty. If not restarting, leave as is.
+2. If restarting (starting again) the application clean up the latest_reliable_sentiments.json file by leaving the realiable_sentiments object empty. If not restarting, leave as is. You can always keep the latest sentiments there, since they are not useful and the application will try to retrieve them at the beggining if the user didn't create any other sentiment.
 
     ````json 
     {"reliable_sentiments": []}
     `````
 
+    - If you are restarting the application you should also delete the log (only if it exists) that should be in the instance were the application is running.
+
 3. Run the get_user_rankings.py file. This file should be run on cron mode, f.e. every 15 minutes, and send the new alerts via email. This code has the following structure:
 
-    3.1. Loop the companies in the json file. Apply below steps for every company.
-    3.2. Get the user ranking for every company in the function get_user_ranking
-    3.3 Apply trust conditions. In this function the input parameters set for every company are used to filter the rankings dataset and get only the best predictors. This is done in the apply_trust_conditions() function
-    3.4 Execute the find_latest_user_prediction_scrapper() function, which will get, for every "trusted" user, the latest prediction made. If this prediction does exist in the latest_reliable_sentiments.json file, it will do nothing, if it doesn't exist, it will send an email with the predition (send_email()) and it will add it to the json file tracking the predictions.
+    - 3.1 Loop the companies in the json file. Apply below steps for every company.
+    - 3.2. Get the user ranking for every company in the function get_user_ranking
+    - 3.3 Apply trust conditions. In this function the input parameters set for every company are used to filter the rankings dataset and get only the best predictors. This is done in the apply_trust_conditions() function
+    - 3.4 Execute the find_latest_user_prediction_scrapper() function, which will get, for every "trusted" user, the latest prediction made. If this prediction does exist in the latest_reliable_sentiments.json file, it will do nothing, if it doesn't exist, it will send an email with the predition (send_email()) and it will add it to the json file tracking the predictions.
 
-    May 2024.
+In order to create then cron job, input this line inside your crontab jobs:
+
+```console
+*/30 * * * * /usr/bin/python3 /home/ec2-user/investing-foro/get_user_rankings.py
+```
+
+You can also run below command at any time inside the EC2 instance to check all the curernt python runnig processes:
+
+```console
+ps -ef | grep python
+```
+
+This will run the application every 30 minutes.
+
+## Architecture
 
 Below is shown a diagram with the design/ architecture of the full concept.
 
 ![Arquitecture](resources/Arqui.png)
 
+## Results
+
 Below is shown the terminal output of a correct execution:
 
 ![Terminal Output](resources/Correct_execution.png)
+
+October 2024.

@@ -6,7 +6,6 @@
 # nvidia--> mins. ranking de 6133x8 y despues de filtrar 3 maquinas
 # Con nvidia tarda la vida. No tiene sentido llamar al ranking para cada pais. Hay que cambiar esto
 
-
 import requests
 import cloudscraper
 from botocore.exceptions import ClientError
@@ -19,7 +18,12 @@ from datetime import datetime
 from typing import List
 import time
 import random
+import logging
 import utils.proxy_page_port_functionality as proxy_class
+
+
+logging.basicConfig(filename="log_latest.log", level=logging.INFO)
+logger = logging.getLogger()
 
 scraper = cloudscraper.create_scraper()
 
@@ -170,23 +174,23 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, proxi
             ## 403 too many requests
             ## 504 user page does not load
             if user_equities_sentiments_html_page.status_code != 200:
-                print(f"Page {user_link} couldn't be loaded, status code: {user_equities_sentiments_html_page.status_code}")
+                logger.info(f"Page {user_link} couldn't be loaded, status code: {user_equities_sentiments_html_page.status_code}")
                 
                 if user_equities_sentiments_html_page.status_code == 429 :
                     
-                    print("Rate Limit (429) exceeded, waiting 20s to retry....")
+                    logger.error("Rate Limit (429) exceeded, waiting 20s to retry....")
                     time.sleep(20)
                 
                 if user_equities_sentiments_html_page.status_code == 403 :
                     
-                    print("Getting FORBIDDEN (403) status responses, waiting 20s before retrying....")
+                    logger.error("Getting FORBIDDEN (403) status responses, waiting 20s before retrying....")
                     time.sleep(20)
             # JB: por asegurar un sleep
             # time.sleep(5)
             retries -= 1
 
         except Exception as e:
-            print(f"Error processing GET request to 'https://es.investing.com{user_link}'. ERROR: {e}")
+            logger.error(f"Error processing GET request to 'https://www.investing.com{user_link}'. ERROR: {e}")
             
 
     ## TODO: Accept only 200
@@ -195,7 +199,7 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, proxi
     sentiments_table = soup.find('table', attrs={'id':'sentiments_table'})
     
     if sentiments_table is None:
-        print(f"User data from link {user_link} could not be retrieved, sentiments object is NULL")
+        logger.info(f"User data from link {user_link} could not be retrieved, sentiments object is NULL")
         return None
 
     table_data = [[cell.text for cell in row("td")]
@@ -286,9 +290,9 @@ def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email
         and "HTTPStatusCode" in response["ResponseMetadata"]
         and response["ResponseMetadata"]["HTTPStatusCode"] == 200
     ):
-        print("Email sent successfully.")
+        logger.info("Email sent successfully.")
     else:
-        print(  # pylint: disable=logging-fstring-interpolation
+        logger.exception(  # pylint: disable=logging-fstring-interpolation
             f"Failed to send Email. Status Code: {response.status_code}, Response: {response.text}"
         )
 
@@ -315,41 +319,45 @@ def main ():
 
     companies_to_watch =  json.loads(file_content_companies)
     
-    print("Companies list file correctly loaded from S3")
+    logger.info("Companies list file correctly loaded from S3")
 
     content_object_config = s3.Object(bucket_name, config_file)
     file_content_config = content_object_config.get()['Body'].read().decode('utf-8')
 
     app_config =  json.loads(file_content_config)
 
-    print("Configuration file correctly loaded from S3")
+    logger.info("Configuration file correctly loaded from S3")
 
     ## Get current country, Process is run once per country every 2 hours.
     ## Most of them won't throw any results but being fast is not a priority 
     ## as long as the prediction arrives in less than 2 hours since posted
     ## GET current country and set the new one as the next in the list
     country = app_config["current_country"]
-    
-    next_country =  app_config["countries"][app_config["countries"].index(country) + 1]
+
+    if (app_config["countries"].index(country) + 1) == len(app_config["countries"]) : 
+
+        next_country =  app_config["countries"][0]
+    else:
+        next_country =  app_config["countries"][app_config["countries"].index(country) + 1]
 
     app_config["current_country"] = next_country
 
-    print(f'-------------------')
-    print(f'{country}---')
-    print(f'-------------------')
+    logger.info('-------------------')
+    logger.info(f'----{country}---')
+    logger.info('-------------------')
     
     ## We use a common json file with all countries prediction 
     previous_sentiments_file =  previous_sentiments_file
 
     try:
         s3.Object(bucket_name, previous_sentiments_file).load()
-        print("Previous sentiments file already exists in S3 and was correctly loaded now.")
+        logger.info("Previous sentiments file already exists in S3 and was correctly loaded now.")
     except ClientError as e:
         if e.response['Error']['Code'] == '404':
-            print("No previous sentiments file found in bucket, creating a new one from scratch...")
+            logger.info("No previous sentiments file found in bucket, creating a new one from scratch...")
             # Crear el archivo si no existe
             s3.Object(bucket_name, previous_sentiments_file).put(Body='')
-            print("File initialized.")
+            logger.info("Sentiments file initialized.")
         else:
             raise  # Re-lanza la excepción si es otro tipo de error
 
@@ -387,38 +395,38 @@ def main ():
         number_of_predictions = i["number_of_predictions"]
         variation_percentage = i["variation_percentage"]
 
-        print("Updating data predictions for company: ", company_name , " with identifier: ", identifier)
+        logger.info("Updating data predictions for company: %s, with identifier: %s", {company_name}, {identifier})
 
         ## Esta funcion se descarga la tabla de aquí como un dataframe:
         ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
         rankings_list = get_user_ranking(identifier, country)
 
-        print(rankings_list)
+        logger.info(rankings_list)
 
         trusted_users = apply_trust_conditions(rankings_list,  win_percentage, number_of_predictions, variation_percentage)
 
-        print('-----------------------')
+        logger.info('-----------------------')
 
-        print('ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL :', identifier)
-        print('PARAMETERS:')
-        print('WON % RATE :  ', win_percentage)
-        print('TOTAL NUMBER OF PREDICTIONS : ', number_of_predictions)
-        print('SUBYACENT % VARIATION RATE : ', win_percentage)
+        logger.info('ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL %s:', identifier)
+        logger.info('PARAMETERS:')
+        logger.info('WIN RATE : %s ', win_percentage)
+        logger.info('TOTAL NUMBER OF PREDICTIONS : %s', number_of_predictions)
+        logger.info('SUBYACENT VARIATION RATE : %s', win_percentage)
 
-        print('-----------------------')
+        logger.info('-----------------------')
 
         ## Aquí nos quedamos solo con los buenos, las trust conditions eliminan los cazurros
-        print(trusted_users)
+        logger.info(trusted_users)
 
-        print('Total of users : ', len(trusted_users) )
+        logger.info('Total of users : %s', len(trusted_users) )
 
-        print('-----------------------')
+        logger.info('-----------------------')
 
-        print('Looking for trustable users latest predictions')
+        logger.info('Looking for trustable users latest predictions')
 
         for _, trusted_user in trusted_users.iterrows():
 
-            print('Current user: ', trusted_user['Usuario'], '\n Looking for user latest prediction...')
+            logger.info('Current user:  %s, \n Looking for user latest prediction...', {trusted_user['Usuario']})
 
             if trusted_user['UserLink'] is not None and trusted_user['UserLink'] != '' :
 
@@ -426,7 +434,7 @@ def main ():
 
                 # JB: un df vacio no es none
                 # if not last_user_prediction:
-                if last_user_prediction.empty:
+                if last_user_prediction is None:
                     # JB: este next no hace lo que queremos. hay que usar continue
                     # next
                     continue
@@ -438,39 +446,39 @@ def main ():
                 # user_link = user_database[user_database['user_name'] == trusted_user['Usuario']]['user_id']
                 # trusted_user['UserLink'] = f'/members/{user_link}/sentiments-equities'
 
-                print(f"User {trusted_user['Usuario']} meets the requirements but has no link in this domain")
+                logger.info("User %s meets the requirements but has no link in this domain",trusted_user['Usuario'])
                 continue
             
             if  last_user_prediction is not None:
 
                 last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
 
-                print('Last prediction of user is: ')
-                print('-----------------------')
-                print(last_user_prediction)
+                logger.info('Last prediction of user is: ')
+                logger.info(last_user_prediction)
+                logger.info('-----------------------')
 
                 # Check if the new row exists in the JSON data
                 reliable_sentiments_json_already_in_list = pd.concat([reliable_sentiments_json.astype(str), last_user_prediction.astype(str)], ignore_index=True)
 
                 if not reliable_sentiments_json_already_in_list.duplicated().isin([True]).any():
 
-                    print("Sending information via email....")
+                    logger.info("Sending information via email....")
                     send_email(last_user_prediction, app_config["emailFrom"] , app_config["emailTo"] )
 
-                    print("EMAIL SENT")
+                    logger.info("EMAIL SENT")
 
-                    print('Adding new sentiment ENTRY to the list')
+                    logger.info('Adding new sentiment ENTRY to the list')
                     reliable_sentiments_json = pd.concat([reliable_sentiments_json, last_user_prediction], ignore_index=True)
 
                 else :
-                    print("Entry already exist in predictions JSON list")
+                    logger.info("Entry already exist in predictions JSON list")
 
             else:
 
-                print('-----------------------')
-                print('This user does not have any recent predictions')
+                logger.info('-----------------------')
+                logger.info('This user does not have any recent predictions')
 
-    print('Updating json file')
+    logger.info('Updating json file')
 
     reliable_sentiments_json = reliable_sentiments_json.astype(str)
 
@@ -479,13 +487,13 @@ def main ():
         Body=(bytes(json.dumps({'reliable_sentiments': reliable_sentiments_json.to_dict(orient='records')}).encode('UTF-8') ) )
     )
 
-    print("Predictions file correctly updated in S3")
+    logger.info("Predictions file correctly updated in S3")
 
     content_object_config.put(
         Body=(bytes(json.dumps(app_config).encode('UTF-8')))
     )
 
-    print(f"Configuration file correctly updated in s3, next country in the loop is {next_country}")
+    logger.info(f"Configuration file correctly updated in s3, next country in the loop is {next_country}")
 
 if __name__ == '__main__' :
 

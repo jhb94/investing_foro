@@ -1,2 +1,9 @@
+# Ignore specific visual studio code file
 .vscode
-*__pycache__*
+
+# Ignore cache files
+utils/__pycache__/*
+
+# Ignore log file
+log_latest.log
+
