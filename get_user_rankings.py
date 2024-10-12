@@ -441,6 +441,9 @@ def main ():
         logger.info('Looking for trustable users latest predictions')
 
         for _, trusted_user in trusted_users.iterrows():
+            
+            ## Initialise variable to None is important in order for the prediction to not be messed up between trusted users
+            last_user_prediction = None
 
             logger.info('Current user:  %s, \n Looking for user latest prediction...', {trusted_user['Usuario']})
 
