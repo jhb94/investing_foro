@@ -1,6 +1,5 @@
 import boto3
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 
 # Configuración de S3
 s3 = boto3.client('s3')
@@ -17,3 +16,4 @@ def upload_to_s3():
         print(f"Error al subir el archivo a S3: {e}")
 
 upload_to_s3()
+
