@@ -19,11 +19,21 @@ from typing import List
 import time
 import random
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import utils.proxy_page_port_functionality as proxy_class
 
 
 logging.basicConfig(filename="log_latest.log", level=logging.INFO)
 logger = logging.getLogger()
+# Crear un manejador que rote el archivo cada 24 horas. Esto es a media noche crea un nuevo archivo.
+# backupCount, guarda los ultimos 7 Logs y el resto se eliminan. Asi no cargamos la memoria
+handler = TimedRotatingFileHandler("log_latest.log", when="midnight", interval=1, backupCount=7)
+handler.setLevel(logging.INFO)
+# Formato del logger
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+# Añadir el manejador al logger
+logger.addHandler(handler)
 
 scraper = cloudscraper.create_scraper()
 
