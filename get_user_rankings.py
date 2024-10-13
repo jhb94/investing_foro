@@ -87,44 +87,49 @@ def get_user_ranking(identifier:str, country: str, profitability: float):
     records_left = True
     header_data = [['Rango', 'Usuario', 'Total',	'Cerrados',	'Ganadores','Gan. %','% Var.', 'UserLink']]
 
-    while records_left:
+    try:
 
-        rankings_bulk_records = requests.get(f'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
-        
-        ## In order to not iterate over all the rankings, we will check the last profitability that we get.
-        ## We know that the rankings are ordered by profitability in desdending order.
-        ## From certain point onwards it makes no sense to keep getting records.
+        while records_left:
 
-        ## Example:
-        ## '...td><td class="right">0</td><td class="bold right redFont">-1.35%</td></tr>'
-        ## We need to get the -1.35 to see which is the latest rentability retrieved.
-        cleaned_string = rankings_bulk_records.text.rstrip('</td></tr>')
+            rankings_bulk_records = requests.get(f'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
+            
+            ## In order to not iterate over all the rankings, we will check the last profitability that we get.
+            ## We know that the rankings are ordered by profitability in desdending order.
+            ## From certain point onwards it makes no sense to keep getting records.
 
-        # Find the last occurrence of '>'
-        last_number_str = cleaned_string[cleaned_string.rfind('>') + 1:].replace('%', '')
+            ## Example:
+            ## '...td><td class="right">0</td><td class="bold right redFont">-1.35%</td></tr>'
+            ## We need to get the -1.35 to see which is the latest rentability retrieved.
+            cleaned_string = rankings_bulk_records.text.rstrip('</td></tr>')
 
-        # Convert to float
-        last_profitability = float(last_number_str)
+            # Find the last occurrence of '>'
+            last_number_str = cleaned_string[cleaned_string.rfind('>') + 1:].replace('%', '')
 
-        ## 403 forbidden
-        ## 429 Rate limited.
-        if rankings_bulk_records.status_code != 200:
-            break
-        
-        ## If there is no response break
-        if rankings_bulk_records.content == b'':
-            records_left = False
-        else:
-            response += rankings_bulk_records.content.decode()
-            iterator += 1
+            # Convert to float
+            last_profitability = float(last_number_str)
 
-        ## If the users are not profitable break
-        if last_profitability < profitability:
-            break
+            ## 403 forbidden
+            ## 429 Rate limited.
+            if rankings_bulk_records.status_code != 200:
+                break
+            
+            ## If there is no response break
+            if rankings_bulk_records.content == b'':
+                records_left = False
+            else:
+                response += rankings_bulk_records.content.decode()
+                iterator += 1
 
-    if len(response) == 0:
-        next 
+            ## If the users are not profitable break
+            if last_profitability < profitability:
+                break
+
+        if len(response) == 0:
+            next 
     
+    except Exception as e:
+        logger.error(f"Error processing GET request to 'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}'). ERROR: {e}")
+
     soup = BeautifulSoup(response, "html.parser")
 
     table_data = [[cell.text for cell in row("td")]
@@ -248,6 +253,10 @@ def find_latest_user_prediction_scrapper(user_link: str, company_name:str, count
     ## Parse both Dates
     user_sentiments_list['PredictionDate'] = pd.to_datetime(user_sentiments_list['PredictionDate'].str[:-2] + '20' + user_sentiments_list['PredictionDate'].str[-2:], format="%d-%m-%Y", dayfirst=True)
     user_sentiments_list['DateForTheValue'] = pd.to_datetime(user_sentiments_list['DateForTheValue'].str[:-2] + '20' + user_sentiments_list['DateForTheValue'].str[-2:], format="%d-%m-%Y", dayfirst=True)
+
+    ## Convert to timestamp since pandas is storing them in s3 as timestamps.
+    user_sentiments_list['PredictionDate'] = user_sentiments_list['PredictionDate'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    user_sentiments_list['DateForTheValue'] = user_sentiments_list['DateForTheValue'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
     user_sentiments_list = user_sentiments_list[user_sentiments_list['PredictionDate'] == user_sentiments_list['PredictionDate'].max()]
 
