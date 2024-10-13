@@ -59,7 +59,7 @@ Follow below steps to run it. This is intented to be run inside a EC2 instance i
     ```
     Taken from [cffi](https://www.zenrows.com/blog/curl-impersonate#scrape-html)
 
-    This may be of help when checking for possible IP bans
+    This may be of help when checking for possible IP bans. Taken from [here](https://www.zenrows.com/blog/curl-bypass-cloudflare#simulate-a-browser)
 
 4. Run the get_user_rankings.py file. This file should be run on cron mode, f.e. every 15 minutes, and send the new alerts via email. This code has the following structure:
 
