@@ -1,7 +1,4 @@
 import boto3
-import os
-import logging
-from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime, timedelta
 import time
 
@@ -19,11 +16,4 @@ def upload_to_s3():
     except Exception as e:
         print(f"Error al subir el archivo a S3: {e}")
 
-# Ejecutar la carga cada 24 horas
-while True:
-    # Esperar hasta medianoche
-    next_run = datetime.combine(datetime.now().date(), datetime.min.time()) + timedelta(days=1)
-    wait_time = (next_run - datetime.now()).total_seconds()
-    time.sleep(wait_time)
-    # Cargar el archivo a S3
-    upload_to_s3()
+upload_to_s3()
