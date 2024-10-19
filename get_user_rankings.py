@@ -9,9 +9,20 @@ from datetime import datetime
 from typing import List
 import time
 import logging
+from logging.handlers import TimedRotatingFileHandler
 
 logging.basicConfig(filename="log_latest.log", level=logging.INFO)
 logger = logging.getLogger()
+# Crear un manejador que rote el archivo cada 24 horas. Esto es a media noche crea un nuevo archivo.
+# backupCount, guarda los ultimos 7 Logs y el resto se eliminan. Asi no cargamos la memoria
+handler = TimedRotatingFileHandler("log_latest.log", when="midnight", interval=1, backupCount=7)
+handler.setLevel(logging.INFO)
+# Formato del logger
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+# Añadir el manejador al logger
+logger.addHandler(handler)
+
 
 # Initialize the BOTO3 client
 s3 = boto3.resource('s3', region_name="eu-west-1")
