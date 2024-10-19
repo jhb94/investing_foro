@@ -9,8 +9,6 @@ from datetime import datetime
 from typing import List
 import time
 import logging
-from curl_cffi import requests as cffi_requests
-
 
 logging.basicConfig(filename="log_latest.log", level=logging.INFO)
 logger = logging.getLogger()
@@ -80,78 +78,90 @@ SAMPLE PAYLOAD:
 '''
 
 ## Function that receives the identifier or symbol of a company and returns all the users that made predictions on it
-def get_user_ranking(identifier:str, country: str, profitability: float):
+def get_user_ranking(identifier:str, countries: List[str], profitability: float):
 
-    iterator = 0
-    response = ''
-    records_left = True
     header_data = [['Rango', 'Usuario', 'Total',	'Cerrados',	'Ganadores','Gan. %','% Var.', 'UserLink']]
+    rankings_list_full = None
 
-    try:
+    for country in countries:
 
-        while records_left:
+        iterator = 0
+        response = ''
+        records_left = True
 
-            rankings_bulk_records = requests.get(f'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
-            
-            ## In order to not iterate over all the rankings, we will check the last profitability that we get.
-            ## We know that the rankings are ordered by profitability in desdending order.
-            ## From certain point onwards it makes no sense to keep getting records.
+        try:
 
-            ## Example:
-            ## '...td><td class="right">0</td><td class="bold right redFont">-1.35%</td></tr>'
-            ## We need to get the -1.35 to see which is the latest rentability retrieved.
-            cleaned_string = rankings_bulk_records.text.rstrip('</td></tr>')
+            while records_left:
 
-            # Find the last occurrence of '>'
-            last_number_str = cleaned_string[cleaned_string.rfind('>') + 1:].replace('%', '')
+                rankings_bulk_records = requests.get(f'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}')
+                
+                ## In order to not iterate over all the rankings, we will check the last profitability that we get.
+                ## We know that the rankings are ordered by profitability in desdending order.
+                ## From certain point onwards it makes no sense to keep getting records.
 
-            # Convert to float
-            last_profitability = float(last_number_str)
+                ## Example:
+                ## '...td><td class="right">0</td><td class="bold right redFont">-1.35%</td></tr>'
+                ## We need to get the -1.35 to see which is the latest rentability retrieved.
+                cleaned_string = rankings_bulk_records.text.rstrip('</td></tr>')
 
-            ## 403 forbidden
-            ## 429 Rate limited.
-            if rankings_bulk_records.status_code != 200:
-                break
-            
-            ## If there is no response break
-            if rankings_bulk_records.content == b'':
-                records_left = False
-            else:
-                response += rankings_bulk_records.content.decode()
-                iterator += 1
+                # Find the last occurrence of '>'
+                last_number_str = cleaned_string[cleaned_string.rfind('>') + 1:].replace('%', '')
 
-            ## If the users are not profitable break
-            if last_profitability < profitability:
-                break
+                # Convert to float
+                last_profitability = float(last_number_str)
 
-        if len(response) == 0:
-            next 
-    
-    except Exception as e:
-        logger.error(f"Error processing GET request to 'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}'). ERROR: {e}")
+                ## 403 forbidden
+                ## 429 Rate limited.
+                ## Exit While and go to next country in the for loop
+                if rankings_bulk_records.status_code != 200:
+                    break
+                
+                ## If there is no response break
+                if rankings_bulk_records.content == b'':
+                    records_left = False
+                else:
+                    response += rankings_bulk_records.content.decode()
+                    iterator += 1
 
-    soup = BeautifulSoup(response, "html.parser")
+                ## If the users are not profitable break, exit While and go to next iteration in for loop (next country)
+                if last_profitability < profitability:
+                    break
 
-    table_data = [[cell.text for cell in row("td")]
-                        for row in soup("tr")]
+            if len(response) == 0:
+                next 
+        
+        except Exception as e:
+            logger.error(f"Error processing GET request to 'https://{country}{rankings_url}{identifier}&sentimentsBulkCount={iterator}'). ERROR: {e}")
 
-    # Extracting links from 'a' tags, this links point to user pages. 
-    # Links are in the second td tag inside the href of the link
-    links = [row.find_all("td")[1].find("a")["href"] if row.find_all("td")[1].find("a") else None for row in soup("tr")]
+        soup = BeautifulSoup(response, "html.parser")
 
-    rows = [ row + [link] for row, link in zip(table_data, links)]
+        table_data = [[cell.text for cell in row("td")]
+                            for row in soup("tr")]
 
-    rankings = header_data + rows
+        # Extracting links from 'a' tags, this links point to user pages. 
+        # Links are in the second td tag inside the href of the link
+        links = [row.find_all("td")[1].find("a")["href"] if row.find_all("td")[1].find("a") else None for row in soup("tr")]
 
-    rankings_list = pd.DataFrame(rankings[1:], columns=rankings[0])
+        rows = [ row + [link] for row, link in zip(table_data, links)]
 
-    rankings_list = rankings_list.astype({'Total': 'int32', 'Cerrados': 'int32', 'Ganadores': 'int32'})
+        rankings = header_data + rows
 
-    rankings_list['% Var.'] = rankings_list['% Var.'].str.replace('%', '', regex=False).astype(float)
-    rankings_list['Gan. %'] = rankings_list['Gan. %'].astype(float)
-    rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
+        rankings_list = pd.DataFrame(rankings[1:], columns=rankings[0])
 
-    return rankings_list
+        rankings_list = rankings_list.astype({'Total': 'int32', 'Cerrados': 'int32', 'Ganadores': 'int32'})
+
+        rankings_list['% Var.'] = rankings_list['% Var.'].str.replace('%', '', regex=False).astype(float)
+        rankings_list['Gan. %'] = rankings_list['Gan. %'].astype(float)
+        rankings_list['UserLink'] =  rankings_list['UserLink'].str.replace('currencies', 'equities')
+
+        rankings_list = rankings_list.dropna(subset=['UserLink'])
+
+        if  rankings_list_full is None:
+            rankings_list_full = rankings_list
+        else:
+            rankings_list_full = pd.concat([rankings_list_full , rankings_list], axis=0).reset_index(drop=True)
+
+    return rankings_list_full
 
 ## Filters out all user regarding trust conditions.
 def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float, number_of_predictions: int, variation_percentage: float):
@@ -162,109 +172,81 @@ def apply_trust_conditions(rankings_list : pd.DataFrame,  win_percentage : float
 
     return adjusted_rankings
 
-## Looks for the latest user predition in the specific domain.
-def find_latest_user_prediction_scrapper(user_link: str, company_name:str, country: str):
+def get_latest_company_predictions(identifier:str):
 
-    ## Attemp to rerun the request to the user's page 3 times.
-    retries = 3
 
-    while retries > 0:
-        try:
-            
-            ## Commenting as EC2 wasn't capable of downloading the proxies page.
-            # random_proxy = random.choice(proxies)
-            # proxy_type = random_proxy.split(":")[0].lower()
-            # proxy = {proxy_type: random_proxy}
+    ## Pure header hardcoding, this does not look very pro but it works.
+    ## The idea is to repeat this call (group of calls taking the sentimentBulkCount) once every 6h per company
+    headers = {
+    'accept': 'application/json, text/javascript, */*; q=0.01',
+    'accept-language': 'es-ES,es;q=0.9,en;q=0.8',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://www.investing.com',
+    'priority': 'u=1, i',
+    # 'referer': 'https://www.investing.com/equities/grupo-ezentis-sa-scoreboard',
+    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"macOS"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'x-requested-with': 'XMLHttpRequest',
+    }
 
-            ## Comenting as below won't work inside EC2. It works locally by the way. Keep this comment
-            ## user_equities_sentiments_html_page = scraper.get(f'https://{country}.investing.com{user_link}', timeout=10, proxies=proxy)
-            
-            url = f'https://{country}.investing.com{user_link}'
+    data = {
+        'action': 'get_sentiments_rows',
+        # 'pair_name': 'Grupo Ezentis SA',
+        # 'last_value': '0.1270',
+        # 'pair_decimal_change': '4',
+        # 'pair_decimal_change_percent': '2',
+        # 'pair_decimal_last': '4',
+        # 'sentiments_category': 'pairs',
+        'pair_ID': identifier,
+        'sentimentsBulkCount': '0',
+    }
 
-            user_equities_sentiments_html_page = cffi_requests.get(
-               url,
-               impersonate="chrome110"
-            )
-            
-            ## Response status code check
-            if user_equities_sentiments_html_page.status_code != 200:
-                logger.info(f"Page {user_link} couldn't be loaded, status code: {user_equities_sentiments_html_page.status_code}")
-                
-                ## 429 rate limit exceeded
-                if user_equities_sentiments_html_page.status_code == 429 :
-                    
-                    logger.error("Rate Limit (429) exceeded, waiting 20s to retry....")
-                    time.sleep(20)
-
-                ## 403 too many requests
-                if user_equities_sentiments_html_page.status_code == 403 :
-                    
-                    logger.error("Getting FORBIDDEN (403) status responses, waiting 20s before retrying....")
-                    time.sleep(20)
-                
-                ## 504 too many requests
-                if user_equities_sentiments_html_page.status_code == 504 :
-                    
-                    logger.error("Getting 504 status responses, skipping user as page does not load....")
-                    retries = 0
-
-            retries -= 1
-
-        except Exception as e:
-            logger.error(f"Error processing GET request to 'https://{country}.investing.com{user_link}'. ERROR: {e}")
-            
-    soup = BeautifulSoup(user_equities_sentiments_html_page.text, "html.parser")
-
-    sentiments_table = soup.find('table', attrs={'id':'sentiments_table'})
+    latest_predictions_full = None 
+    today = datetime.today()
     
-    if sentiments_table is None:
-        logger.info(f"User data from link {user_link} could not be retrieved, sentiments object is NULL")
-        return None
+    while True:
 
-    table_data = [[cell.text for cell in row("td")]
-                        for row in sentiments_table.find_all('tr')]
+        response = requests.post('https://www.investing.com/instruments/sentiments/recentsentimentsAjax', headers=headers, data=data)
 
-    table_data = table_data[1:]
+        latest_predictions = pd.DataFrame.from_records(json.loads(response.text)['rowsData'])
 
-    header_data = [['PredictionDate', 'Name', 'direction',   'Open' , 'Forecast' , '% Var.']]
+        latest_predictions['change_percent'] = latest_predictions['change_percent'].str.replace('%', '', regex=False).astype(float)
 
-    user_sentiments = header_data + table_data
+        ## Get the last start_date, this allows us to stop the sentimentsBultCount incrementations and exit the loop
+        ## Functionally this is equivalent to just getting the predictions older or equal to today
+        last_day = pd.to_datetime(latest_predictions['start_date'].iloc[-1])
 
-    user_sentiments_list = pd.DataFrame(user_sentiments[1:], columns=user_sentiments[0])
-    
-    user_sentiments_list['% Var.'] = user_sentiments_list['% Var.'].str.replace('%', '', regex=False).astype(float)
+        ## Remove all the sentiments that do not have a specific forecast.
+        latest_predictions = latest_predictions[latest_predictions['end_date'].str.contains('@')]
 
-    ## Remove all the sentiments that do not have a specific forecast.
-    user_sentiments_list = user_sentiments_list[user_sentiments_list['Forecast'].str.contains('@')]
+        ## Convert Forecast column into 2 columns with expected value and date for the value:
+        if latest_predictions.empty:
+            latest_predictions['DateForTheValue'] = pd.Series(dtype='str')
+            latest_predictions['PredictionValue'] = pd.Series(dtype='str')
+        else:
+            latest_predictions[['DateForTheValue', 'PredictionValue']] = latest_predictions['end_date'].str.split(' @ ', expand=True)
+        
+        latest_predictions = latest_predictions.drop(['font_color', 'var_tmp_plus'], axis=1)
 
-    ## Convert Forecast column into 2 columns with expected value and date for the value:
-    user_sentiments_list[['DateForTheValue', 'PredictionValue']] = user_sentiments_list['Forecast'].str.split(' @ ', expand=True)
-    
-    user_sentiments_list = user_sentiments_list[user_sentiments_list['Name'] == company_name]
+        if  latest_predictions_full is None:
+            latest_predictions_full = latest_predictions
+        else:
+            latest_predictions_full = pd.concat([latest_predictions_full , latest_predictions], axis=0, ignore_index=True)
+        
+        ## Get the next 50 sentiments
+        data['sentimentsBulkCount'] = str(int(data['sentimentsBulkCount']) + 1) 
 
-    ## It can happen that there is not a prediction for this company in the users main equities page.
-    if user_sentiments_list.empty:
-        logger.info("User may not have done predictions in this company for a while. No data found.")
-        return None
+        ## If the predictions are from earlier days break
+        if last_day < today:
 
-    # Drop the original 'Forecast' column
-    user_sentiments_list = user_sentiments_list.drop(columns=['Forecast'])
+            break
 
-    ## Parse both Dates
-    user_sentiments_list['PredictionDate'] = pd.to_datetime(user_sentiments_list['PredictionDate'].str[:-2] + '20' + user_sentiments_list['PredictionDate'].str[-2:], format="%d-%m-%Y", dayfirst=True)
-    user_sentiments_list['DateForTheValue'] = pd.to_datetime(user_sentiments_list['DateForTheValue'].str[:-2] + '20' + user_sentiments_list['DateForTheValue'].str[-2:], format="%d-%m-%Y", dayfirst=True)
-
-    ## Convert to timestamp since pandas is storing them in s3 as timestamps.
-    user_sentiments_list['PredictionDate'] = user_sentiments_list['PredictionDate'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    user_sentiments_list['DateForTheValue'] = user_sentiments_list['DateForTheValue'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    user_sentiments_list = user_sentiments_list[user_sentiments_list['PredictionDate'] == user_sentiments_list['PredictionDate'].max()]
-
-    user_sentiments_list = user_sentiments_list.drop("direction", axis =1 )
-
-    ## Drop duplicates based on start date colum (it is not a timestamp so not able to get last based on hours)
-    ## Keep last value of the prediction 
-    return user_sentiments_list.drop_duplicates(subset=['PredictionDate'], keep='first')
+    return latest_predictions_full
 
 ## Send email to recipients with a prediction. Change email recipientes in config file.
 def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email_from: str, prediction_notification_email_to: List[str] ): 
@@ -325,13 +307,6 @@ def send_email(last_user_prediction: pd.DataFrame, prediction_notification_email
         )
 
 def main ():
-    
-    ## Get some proxies in order to make the calls for us since AWS EC2 and service instances IP's are generally banned in cloudfare.
-    ## spys.one has various different proxies depending on the country were they are located
-    # proxies_url = 'https://spys.one/free-proxy-list/US/'
-    # proxies_url = 'https://spys.one/free-proxy-list/ES'
-
-    # proxies = proxy_class.get_proxies(proxies_url)
 
     ## READ INITIALIZATION FILES ##
     companies_file  = 'companies_to_watch.json'
@@ -353,27 +328,8 @@ def main ():
     app_config =  json.loads(file_content_config)
 
     logger.info("Configuration file correctly loaded from S3")
-
-    ## Process is run every 30 mins with the next country in the loop, taken from config.json file.
-    ## Most of them won't throw any results but being fast is not a priority as long as predictions arrive within less than 10h since they were written
-    ## as long as the prediction arrives in less than 2 hours since posted
-
-    ## GET current country and set the new one as the next in the list
-    country = app_config["current_country"]
-
-    if (app_config["countries"].index(country) + 1) == len(app_config["countries"]) : 
-
-        next_country =  app_config["countries"][0]
-    else:
-        next_country =  app_config["countries"][app_config["countries"].index(country) + 1]
-
-    app_config["current_country"] = next_country
-
-    logger.info('-------------------')
-    logger.info(f'CURRENT COUNTRY DOMAIN : ----{country}---')
-    logger.info('-------------------')
     
-    ## We use a common json file with all countries prediction 
+    ## We use a json file that contains all the previous predictions
     previous_sentiments_file =  previous_sentiments_file
 
     try:
@@ -425,7 +381,7 @@ def main ():
 
         ## Below function call downloads the sentiments-table from this url and saves it to a pandas dataframe object.
         ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
-        rankings_list = get_user_ranking(identifier, country, variation_percentage)
+        rankings_list = get_user_ranking(identifier=identifier, countries=app_config["countries"], profitability=variation_percentage)
 
         if rankings_list.empty:
             logger.error("Rankings list could not be retrieved for this company and country, skipping....")
@@ -435,7 +391,7 @@ def main ():
 
         ## Below function call filters all the users that have put a sentiment on the company by the trust conditions.
         ## Users that make "good" predictions
-        trusted_users = apply_trust_conditions(rankings_list,  win_percentage, number_of_predictions, variation_percentage)
+        trusted_users = apply_trust_conditions(rankings_list, win_percentage, number_of_predictions, variation_percentage)
 
         logger.info('-----------------------')
 
@@ -454,6 +410,8 @@ def main ():
 
         logger.info('Looking for trustable users latest predictions')
 
+        latest_company_predictions = get_latest_company_predictions(identifier=identifier)
+
         for _, trusted_user in trusted_users.iterrows():
             
             ## Initialise variable to None is important in order for the prediction to not be messed up between trusted users
@@ -462,24 +420,20 @@ def main ():
             logger.info('Current user:  %s, \n Looking for user latest prediction...', {trusted_user['Usuario']})
 
             if trusted_user['UserLink'] is not None and trusted_user['UserLink'] != '' :
-
-                last_user_prediction = find_latest_user_prediction_scrapper(trusted_user['UserLink'], company_name, country)
                 
-                ## Below checks that an actual prediction was returned from find_latest_user_prediction_scrapper()
-                if last_user_prediction is None:
-                    
-                    ## Jump to next user in the trusted list 
-                    continue
+                ## Comparing the user_id value that we get from the latest company predictions and the user id embedded in the user link
+                ## Being the later the user link column result from calling the user rankings for all the different domains (countries)
+                last_user_prediction = latest_company_predictions[
+                    latest_company_predictions['user_id'] == trusted_user['UserLink'].replace('/members/', '').replace('/sentiments-equities', '') ]
+                
             elif trusted_user['UserLink'] is None:
 
                 ## Format: members/200303883/sentiments-equities
 
-                logger.info("User %s meets the requirements but has no link in this domain",trusted_user['Usuario'])
+                logger.info("User %s meets the requirements but has no link",trusted_user['Usuario'])
                 continue
             
-            if  last_user_prediction is not None:
-
-                last_user_prediction['UserName'] = trusted_user['Usuario'] + trusted_user['UserLink'].replace('/members/', '(').replace('/sentiments-equities', ')')
+            if  not last_user_prediction.empty:
 
                 logger.info('Last prediction of user is: ')
                 logger.info(last_user_prediction)
@@ -522,7 +476,7 @@ def main ():
         Body=(bytes(json.dumps(app_config).encode('UTF-8')))
     )
 
-    logger.info(f"Configuration file correctly updated in s3, next country in the loop is {next_country}")
+    logger.info(f"Configuration file correctly updated in s3")
 
 if __name__ == '__main__' :
 

@@ -1,4 +1,4 @@
-## INVESTING:COM Snentiments Analysis Alerting System
+## INVESTING:COM Sentiments Analysis Alerting System
 
 Repository that monitores the behaviour of the best users in [INVESTING](https://investing.com) user forum.
 
