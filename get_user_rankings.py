@@ -5,7 +5,7 @@ import pandas as pd
 import json
 import boto3
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 import time
 import logging
@@ -252,8 +252,8 @@ def get_latest_company_predictions(identifier:str):
         ## Get the next 50 sentiments
         data['sentimentsBulkCount'] = str(int(data['sentimentsBulkCount']) + 1) 
 
-        ## If the predictions are from earlier days break
-        if last_day < today:
+        ## If the predictions are from earlier days break. Give 1 day margin
+        if last_day < (today - timedelta(days=1)):
 
             break
 
