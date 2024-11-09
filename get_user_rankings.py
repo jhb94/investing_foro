@@ -11,16 +11,18 @@ import time
 import logging
 from logging.handlers import TimedRotatingFileHandler
 
-logging.basicConfig(filename="log_latest.log", level=logging.INFO)
 logger = logging.getLogger()
-# Crear un manejador que rote el archivo cada 24 horas. Esto es a media noche crea un nuevo archivo.
-# backupCount, guarda los ultimos 7 Logs y el resto se eliminan. Asi no cargamos la memoria
+logger.setLevel(logging.INFO)
+
+# Create a handler that will rotate the logs every night. It will keep 3 days of logs in the instance.
 handler = TimedRotatingFileHandler("log_latest.log", when="midnight", interval=1, backupCount=3)
 handler.setLevel(logging.INFO)
-# Formato del logger
+
+# Format of logs.
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
-# Añadir el manejador al logger
+
+# Add the handler to the logger
 logger.addHandler(handler)
 
 

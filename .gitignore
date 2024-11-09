@@ -5,5 +5,12 @@
 utils/__pycache__/*
 
 # Ignore log file
-log_latest.log
+log_latest*
 
+# Ignore virtualenv
+venv
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

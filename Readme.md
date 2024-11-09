@@ -35,31 +35,16 @@ Follow below steps to run it. This is intented to be run inside a EC2 instance i
 
 3. Install requirements.
 
+    - Install virtualenv, Create a virtual env, Activate virtual env
+    ```console
+        pip3 install virtualenv
+        virtualenv venv
+        source venv/bin/activate
+    ```
     - Python modules
     ```console
     pip3 install -r requirements.txt
     ```
-    - Curl cffi module may not be correctly installed, if you receive a module not found run:
-    ```console
-    pip3 install curl_cffi
-    ```
-    If you need to do tests in the terminal you can also install the docker image of the underlying library:
-
-    Chrome:
-    ```console
-    docker pull lwthiker/curl-impersonate:0.6-chrome
-    ```
-    FireFox:
-    ```console
-    docker pull lwthiker/curl-impersonate:0.6-ff
-    ```
-    And do trials with:
-    ```console
-    docker run --rm lwthiker/curl-impersonate:0.6-chrome curl_chrome110 https://www.scrapingcourse.com/ecommerce/
-    ```
-    Taken from [cffi](https://www.zenrows.com/blog/curl-impersonate#scrape-html)
-
-    This may be of help when checking for possible IP bans. Taken from [here](https://www.zenrows.com/blog/curl-bypass-cloudflare#simulate-a-browser)
 
 4. Run the get_user_rankings.py file. This file should be run on cron mode, f.e. every 15 minutes, and send the new alerts via email. This code has the following structure:
 
