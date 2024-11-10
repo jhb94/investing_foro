@@ -504,7 +504,7 @@ def main():
         logger.info("PARAMETERS:")
         logger.info("WIN RATE : %s ", win_percentage)
         logger.info("TOTAL NUMBER OF PREDICTIONS : %s", number_of_predictions)
-        logger.info("SUBYACENT VARIATION RATE : %s", win_percentage)
+        logger.info("SUBYACENT VARIATION RATE : %s", variation_percentage)
 
         logger.info("-----------------------")
         logger.info(trusted_users)
