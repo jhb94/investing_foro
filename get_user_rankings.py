@@ -441,18 +441,7 @@ def main():
         content_object_sentiments.get()["Body"].read().decode("utf-8")
     )
 
-    initial_schema = {
-        "reliable_sentiments": [
-            {
-                "PredictionDate": "",
-                "Name": "",
-                "Open": "",
-                "% Var.": "",
-                "DateForTheValue": "",
-                "PredictionValue": "",
-            }
-        ]
-    }
+    initial_schema = {"reliable_sentiments": [{}]}
     if file_content_sentiments:
         previous_sentiments = json.loads(file_content_sentiments)
     else:
