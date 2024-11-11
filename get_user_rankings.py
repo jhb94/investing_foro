@@ -329,7 +329,10 @@ def send_email(
     last_user_prediction: pd.DataFrame,
     prediction_notification_email_from: str,
     prediction_notification_email_to: List[str],
+    company: str,
 ):
+
+    last_user_prediction["company"] = company
 
     CHARSET = "UTF-8"
 
@@ -565,6 +568,7 @@ def main():
                         last_user_prediction,
                         app_config["emailFrom"],
                         app_config["emailTo"],
+                        company_name,
                     )
 
                     logger.info("EMAIL SENT")
