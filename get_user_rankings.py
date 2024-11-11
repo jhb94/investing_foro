@@ -317,7 +317,7 @@ def get_latest_company_predictions(identifier: str):
         data["sentimentsBulkCount"] = str(int(data["sentimentsBulkCount"]) + 1)
 
         ## If the predictions are from earlier days break. Give 1 day margin
-        if last_day < (today - timedelta(days=5)):
+        if last_day < (today - timedelta(days=3)):
 
             break
 
@@ -540,6 +540,8 @@ def main():
                 continue
 
             if not last_user_prediction.empty:
+
+                last_user_prediction = last_user_prediction.copy()
 
                 last_user_prediction["company"] = company_name
 
