@@ -10,6 +10,7 @@ from typing import List
 import time
 import logging
 from logging.handlers import TimedRotatingFileHandler
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -389,6 +390,151 @@ def send_email(
         )
 
 
+def process_company(
+    company: str,
+    app_config: dict,
+    reliable_sentiments_partial: pd.DataFrame,
+    reliable_sentiments_json: pd.DataFrame,
+):
+
+    identifier = company["identifier"]
+    company_name = company["name"]
+    win_percentage = company["win_percentage"]
+    number_of_predictions = company["number_of_predictions"]
+    variation_percentage = company["variation_percentage"]
+
+    logger.info(
+        "Updating data predictions for company: %s, with identifier: %s",
+        {company_name},
+        {identifier},
+    )
+
+    ## Below function call downloads the sentiments-table from this url and saves it to a pandas dataframe object.
+    ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
+    rankings_list = get_user_ranking(
+        identifier=identifier,
+        countries=app_config["countries"],
+        profitability=variation_percentage,
+    )
+
+    if rankings_list.empty:
+        logger.error(
+            "Rankings list could not be retrieved for this company and country, skipping...."
+        )
+        return reliable_sentiments_partial
+
+    logger.info(rankings_list)
+
+    ## Below function call filters all the users that have put a sentiment on the company by the trust conditions.
+    ## Users that make "good" predictions
+    trusted_users = apply_trust_conditions(
+        rankings_list, win_percentage, number_of_predictions, variation_percentage
+    )
+
+    logger.info("-----------------------")
+
+    logger.info(
+        "ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL %s:", identifier
+    )
+    logger.info("PARAMETERS:")
+    logger.info("WIN RATE : %s ", win_percentage)
+    logger.info("TOTAL NUMBER OF PREDICTIONS : %s", number_of_predictions)
+    logger.info("SUBYACENT VARIATION RATE : %s", variation_percentage)
+
+    logger.info("-----------------------")
+    logger.info(trusted_users)
+
+    logger.info("Total of users : %s", len(trusted_users))
+
+    logger.info("-----------------------")
+
+    logger.info("Looking for trustable users latest predictions")
+
+    latest_company_predictions = get_latest_company_predictions(identifier=identifier)
+
+    for _, trusted_user in trusted_users.iterrows():
+
+        ## Initialise variable to None is important in order for the prediction to not be messed up between trusted users
+        last_user_prediction = None
+
+        logger.info(
+            "Current user:  %s, \n Looking for user latest prediction...",
+            {trusted_user["Usuario"]},
+        )
+
+        if trusted_user["UserLink"] is not None and trusted_user["UserLink"] != "":
+
+            ## Comparing the user_id value that we get from the latest company predictions and the user id embedded in the user link
+            ## Being the later the user link column result from calling the user rankings for all the different domains (countries)
+            last_user_prediction = latest_company_predictions[
+                latest_company_predictions["user_id"]
+                == trusted_user["UserLink"]
+                .replace("/members/", "")
+                .replace("/sentiments-equities", "")
+            ]
+
+        elif trusted_user["UserLink"] is None:
+
+            ## Format: members/200303883/sentiments-equities
+
+            logger.info(
+                "User %s meets the requirements but has no link",
+                trusted_user["Usuario"],
+            )
+            continue
+
+        if not last_user_prediction.empty:
+
+            last_user_prediction = last_user_prediction.copy()
+
+            last_user_prediction["company"] = company_name
+
+            logger.info("Last prediction of user is: ")
+            logger.info(last_user_prediction)
+            logger.info("-----------------------")
+
+            ## Check if the new row exists in the JSON data file containing the previous prediction, to not write or send repeated predictions
+            reliable_sentiments_json_already_in_list = pd.concat(
+                [
+                    reliable_sentiments_json.astype(str),
+                    last_user_prediction.astype(str),
+                ],
+                ignore_index=True,
+            )
+
+            if (
+                not reliable_sentiments_json_already_in_list.duplicated()
+                .isin([True])
+                .any()
+            ):
+
+                logger.info("Sending information via email....")
+                send_email(
+                    last_user_prediction,
+                    app_config["emailFrom"],
+                    app_config["emailTo"],
+                )
+
+                logger.info("EMAIL SENT")
+
+                logger.info("Adding new sentiment ENTRY/ ENTRIES to the list")
+
+                reliable_sentiments_partial = pd.concat(
+                    [reliable_sentiments_partial, last_user_prediction],
+                    ignore_index=True,
+                )
+
+            else:
+                logger.info("Entry already exist in predictions JSON list")
+
+        else:
+
+            logger.info("-----------------------")
+            logger.info("This user does not have any recent predictions")
+
+    return reliable_sentiments_partial
+
+
 def main():
 
     ## READ INITIALIZATION FILES ##
@@ -449,143 +595,24 @@ def main():
 
     reliable_sentiments_json = pd.DataFrame(previous_sentiments["reliable_sentiments"])
 
-    for i in companies_to_watch["companies"]:
+    max_threads = 2
+    partial_results = []
 
-        identifier = i["identifier"]
-        company_name = i["name"]
-        win_percentage = i["win_percentage"]
-        number_of_predictions = i["number_of_predictions"]
-        variation_percentage = i["variation_percentage"]
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
 
-        logger.info(
-            "Updating data predictions for company: %s, with identifier: %s",
-            {company_name},
-            {identifier},
-        )
-
-        ## Below function call downloads the sentiments-table from this url and saves it to a pandas dataframe object.
-        ## https://www.investing.com/equities/grupo-ezentis-sa-user-rankings
-        rankings_list = get_user_ranking(
-            identifier=identifier,
-            countries=app_config["countries"],
-            profitability=variation_percentage,
-        )
-
-        if rankings_list.empty:
-            logger.error(
-                "Rankings list could not be retrieved for this company and country, skipping...."
+        futures = [
+            executor.submit(
+                process_company, app_config, reliable_sentiments_json, pd.DataFrame()
             )
-            continue
+            for i in companies_to_watch["companies"]
+        ]
 
-        logger.info(rankings_list)
+        for future in futures:
+            partial_results.append(future.result())
 
-        ## Below function call filters all the users that have put a sentiment on the company by the trust conditions.
-        ## Users that make "good" predictions
-        trusted_users = apply_trust_conditions(
-            rankings_list, win_percentage, number_of_predictions, variation_percentage
-        )
-
-        logger.info("-----------------------")
-
-        logger.info(
-            "ADJUSTED RANKING OF USERS THAT MADE PREDICTIONS ON SYMBOL %s:", identifier
-        )
-        logger.info("PARAMETERS:")
-        logger.info("WIN RATE : %s ", win_percentage)
-        logger.info("TOTAL NUMBER OF PREDICTIONS : %s", number_of_predictions)
-        logger.info("SUBYACENT VARIATION RATE : %s", variation_percentage)
-
-        logger.info("-----------------------")
-        logger.info(trusted_users)
-
-        logger.info("Total of users : %s", len(trusted_users))
-
-        logger.info("-----------------------")
-
-        logger.info("Looking for trustable users latest predictions")
-
-        latest_company_predictions = get_latest_company_predictions(
-            identifier=identifier
-        )
-
-        for _, trusted_user in trusted_users.iterrows():
-
-            ## Initialise variable to None is important in order for the prediction to not be messed up between trusted users
-            last_user_prediction = None
-
-            logger.info(
-                "Current user:  %s, \n Looking for user latest prediction...",
-                {trusted_user["Usuario"]},
-            )
-
-            if trusted_user["UserLink"] is not None and trusted_user["UserLink"] != "":
-
-                ## Comparing the user_id value that we get from the latest company predictions and the user id embedded in the user link
-                ## Being the later the user link column result from calling the user rankings for all the different domains (countries)
-                last_user_prediction = latest_company_predictions[
-                    latest_company_predictions["user_id"]
-                    == trusted_user["UserLink"]
-                    .replace("/members/", "")
-                    .replace("/sentiments-equities", "")
-                ]
-
-            elif trusted_user["UserLink"] is None:
-
-                ## Format: members/200303883/sentiments-equities
-
-                logger.info(
-                    "User %s meets the requirements but has no link",
-                    trusted_user["Usuario"],
-                )
-                continue
-
-            if not last_user_prediction.empty:
-
-                last_user_prediction = last_user_prediction.copy()
-
-                last_user_prediction["company"] = company_name
-
-                logger.info("Last prediction of user is: ")
-                logger.info(last_user_prediction)
-                logger.info("-----------------------")
-
-                ## Check if the new row exists in the JSON data file containing the previous prediction, to not write or send repeated predictions
-                reliable_sentiments_json_already_in_list = pd.concat(
-                    [
-                        reliable_sentiments_json.astype(str),
-                        last_user_prediction.astype(str),
-                    ],
-                    ignore_index=True,
-                )
-
-                if (
-                    not reliable_sentiments_json_already_in_list.duplicated()
-                    .isin([True])
-                    .any()
-                ):
-
-                    logger.info("Sending information via email....")
-                    send_email(
-                        last_user_prediction,
-                        app_config["emailFrom"],
-                        app_config["emailTo"],
-                    )
-
-                    logger.info("EMAIL SENT")
-
-                    logger.info("Adding new sentiment ENTRY to the list")
-                    reliable_sentiments_json = pd.concat(
-                        [reliable_sentiments_json, last_user_prediction],
-                        ignore_index=True,
-                    )
-
-                else:
-                    logger.info("Entry already exist in predictions JSON list")
-
-            else:
-
-                logger.info("-----------------------")
-                logger.info("This user does not have any recent predictions")
+    reliable_sentiments_json = pd.concat(
+        [reliable_sentiments_json] + partial_results, ignore_index=True
+    )
 
     logger.info("Updating json file")
 
